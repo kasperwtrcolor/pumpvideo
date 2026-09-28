@@ -40,11 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated media (rendered by scripts/gen-clips.ts)
-/public/clips
-/public/thumbs
-/.clip-tmp
+# generated media — committed on purpose: Vercel only deploys files that are in
+# the repo, and ffmpeg cannot run in a serverless function. So clips are rendered
+# locally and shipped as static assets.
+# (public/clips and public/thumbs are tracked — do NOT ignore them)
 
-# local sqlite db
-/prisma/dev.db
-/prisma/dev.db-journal
+# scratch dir used while rendering
+/.clip-tmp

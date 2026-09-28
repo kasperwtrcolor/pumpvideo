@@ -55,15 +55,63 @@ export async function fetchCoins(opts: {
   return (await res.json()) as PumpCoin[];
 }
 
-/** Fetch one coin by mint, or null when pump.fun has never heard of it. */
+/**
+ * Fetch one coin by mint, or null when we can't find it.
+ *
+ * NOTE: pump.fun's v3 API has **no by-mint endpoint** — `GET /coins/{mint}`
+ * 404s even for a mint that is demonstrably in the live list. So a single lookup
+ * is a sweep of the ranked list. For more than one mint use
+ * `fetchCoinsByMints()`, which sweeps once for the whole set.
+ */
 export async function fetchCoin(mint: string): Promise<PumpCoin | null> {
-  const res = await fetch(`${FEED_API}/coins/${mint}`, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`pump.fun ${res.status}`);
-  return (await res.json()) as PumpCoin;
+  const map = await fetchCoinsByMints([mint], { pages: 4 });
+  return map.get(mint) ?? null;
+}
+
+/**
+ * Resolve many mints in one sweep. Two passes:
+ *   1. by market cap   — catches established coins
+ *   2. by created time — catches brand-new coins that aren't ranked yet
+ * Each pass pages until it runs out or has found everything it wants.
+ *
+ * Returns a Map of the mints it found. Mints absent from the result are not
+ * refreshable through this API (they've fallen out of both rankings), and callers
+ * should report that rather than pretend the sync succeeded.
+ */
+export async function fetchCoinsByMints(
+  mints: string[],
+  opts: { pages?: number; pageSize?: number } = {},
+): Promise<Map<string, PumpCoin>> {
+  const { pages = 4, pageSize = 50 } = opts;
+  const want = new Set(mints);
+  const found = new Map<string, PumpCoin>();
+  if (want.size === 0) return found;
+
+  const sweeps: Sort[] = ["market_cap", "created_timestamp"];
+
+  for (const sort of sweeps) {
+    for (let p = 0; p < pages; p++) {
+      let batch: PumpCoin[];
+      try {
+        batch = await fetchCoins({ limit: pageSize, offset: p * pageSize, sort });
+      } catch {
+        break;
+      }
+      for (const c of batch) {
+        if (want.has(c.mint)) found.set(c.mint, c);
+      }
+      if (batch.length < pageSize) break; // ranking exhausted
+      if (found.size === want.size) return found;
+      await sleep(120); // be a good citizen between pages
+    }
+    if (found.size === want.size) break;
+  }
+
+  return found;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /** Map an API record onto our Coin columns. */

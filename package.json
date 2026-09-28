@@ -4,16 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "ingest": "tsx scripts/ingest.ts",
     "clips": "tsx scripts/gen-clips.ts",
     "sync": "tsx scripts/sync.ts",
-    "seed": "tsx scripts/ingest.ts --top 40 --new 40 && tsx scripts/gen-clips.ts --limit 30 --concurrency 2"
+    "diag": "tsx scripts/diag-sync.ts",
+    "seed": "tsx scripts/ingest.ts --top 40 --new 40 && tsx scripts/gen-clips.ts --limit 200 --concurrency 2"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

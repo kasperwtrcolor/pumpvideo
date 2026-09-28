@@ -11,7 +11,7 @@
  *   cd /srv/pumpclip && npx tsx scripts/sync.ts --limit 40
  */
 import { prisma } from "../lib/db";
-import { fetchCoin, toCoinRecord } from "../lib/pumpfun";
+import { fetchCoinsByMints, toCoinRecord } from "../lib/pumpfun";
 
 const i = process.argv.indexOf("--limit");
 const LIMIT = i === -1 ? 40 : Number(process.argv[i + 1]) || 40;
@@ -23,14 +23,21 @@ async function main() {
     take: LIMIT,
   });
 
+  // One list sweep resolves every mint — pump.fun has no by-mint endpoint.
+  const live = await fetchCoinsByMints(coins.map((c) => c.mint));
+
   let updated = 0;
+  let notFound = 0;
   const errors: string[] = [];
 
   for (const coin of coins) {
+    const record = live.get(coin.mint);
+    if (!record) {
+      notFound++;
+      continue;
+    }
     try {
-      const live = await fetchCoin(coin.mint);
-      if (!live) continue;
-      const record = toCoinRecord(live);
+      const mapped = toCoinRecord(record);
 
       const since24h = await prisma.pricePoint.findFirst({
         where: { coinId: coin.id, at: { lte: new Date(Date.now() - 23 * 3600_000) } },
@@ -45,18 +52,18 @@ async function main() {
 
       const change24hPct =
         baseline && baseline.priceSol > 0
-          ? ((record.priceSol - baseline.priceSol) / baseline.priceSol) * 100
+          ? ((mapped.priceSol - baseline.priceSol) / baseline.priceSol) * 100
           : coin.change24hPct;
 
       await prisma.coin.update({
         where: { id: coin.id },
-        data: { ...record, change24hPct, isBanned: Boolean(live.is_banned) },
+        data: { ...mapped, change24hPct, isBanned: Boolean(record.is_banned) },
       });
       await prisma.pricePoint.create({
         data: {
           coinId: coin.id,
-          priceSol: record.priceSol,
-          marketCapSol: record.marketCapSol,
+          priceSol: mapped.priceSol,
+          marketCapSol: mapped.marketCapSol,
         },
       });
       updated++;
@@ -65,8 +72,13 @@ async function main() {
     }
   }
 
-  console.log(`sync: checked ${coins.length}, updated ${updated}`);
+  console.log(
+    `sync: checked ${coins.length}, updated ${updated}, notFound ${notFound}`,
+  );
   if (errors.length) console.log(`errors (${errors.length}): ${errors.slice(0, 5).join(" | ")}`);
+  if (updated === 0 && coins.length > 0) {
+    console.log("WARNING: nothing updated — the keeper is not doing its job.");
+  }
 }
 
 main()

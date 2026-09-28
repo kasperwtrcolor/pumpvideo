@@ -50,6 +50,87 @@ pretending, and the UI says so.
 
 ---
 
+## Deploying to Vercel
+
+Vercel is serverless, so three things that work on a VM do **not** work there.
+All three are already handled in this repo:
+
+| Constraint | How it's handled |
+| --- | --- |
+| Read-only, ephemeral filesystem — SQLite cannot persist a write | Postgres via Prisma (`DATABASE_URL` pooled + `DIRECT_URL` direct) |
+| Only files **in the repo** get deployed | `public/clips` + `public/thumbs` are committed (~4.4 MB) |
+| `ffmpeg` cannot run in a serverless function | Clips are rendered locally and shipped as static assets |
+
+### 1. Push to GitHub
+
+```bash
+git remote add origin git@github.com:<you>/pumpvideo.git
+git push -u origin main
+```
+
+### 2. Import the repo on Vercel
+
+Framework preset is detected as Next.js. The build command is pinned in
+`vercel.json` to `prisma generate && next build` so the client is regenerated
+(and built for Vercel's `rhel-openssl-3.0.x` runtime) on every deploy.
+
+### 3. Attach Postgres
+
+Project → **Storage** → **Create Database** → Postgres. Vercel injects
+`POSTGRES_PRISMA_URL` (pooled) and `POSTGRES_URL_NON_POOLING` (direct) into the
+project automatically. Add two env vars pointing at them:
+
+```
+DATABASE_URL = <POSTGRES_PRISMA_URL>          # pooled — required on serverless
+DIRECT_URL   = <POSTGRES_URL_NON_POOLING>     # direct — migrations only
+```
+
+The pooled URL matters: without pgbouncer in front, concurrent serverless
+invocations open a connection each and you hit Postgres' connection cap fast.
+
+### 4. Create the schema and seed
+
+```bash
+DATABASE_URL=<POSTGRES_PRISMA_URL> \
+DIRECT_URL=<POSTGRES_URL_NON_POOLING> npm run db:migrate
+```
+
+Then seed the live coins. Ingestion needs `ffmpeg`, so run it **locally** against
+the remote DB and commit the rendered clips:
+
+```bash
+DATABASE_URL=<POSTGRES_PRISMA_URL> DIRECT_URL=<POSTGRES_URL_NON_POOLING> \
+  npm run ingest && npm run clips
+git add public/clips public/thumbs && git commit -m "seed clips" && git push
+```
+
+### 5. Set the remaining env vars
+
+```
+SOLANA_RPC_URL = https://mainnet.helius-rpc.com/?api-key=...   # public RPC rate-limits
+CRON_SECRET    = $(openssl rand -hex 24)
+```
+
+### 6. Cron (the market keeper)
+
+`vercel.json` registers `/api/sync` as a Vercel Cron target. `GET` is gated on
+`CRON_SECRET` — Vercel sends `Authorization: Bearer <CRON_SECRET>` automatically
+once that env var exists. `GET` is required because Vercel Cron only issues GET.
+
+> **Plan limit**: the schedule in `vercel.json` is daily because Vercel's **Hobby**
+> tier restricts cron frequency. On Pro (or with any external scheduler — e.g.
+> cron-job.org hitting `GET /api/sync?limit=40` with the bearer header) drop it to
+> `*/5 * * * *` for a live price feed.
+
+### Known limitations in this deployment
+
+- Ingestion and clip rendering are **offline** steps, not runtime. New coins
+  appear only when you re-run `npm run ingest && npm run clips` and push. Putting
+  this on a schedule needs a worker (Railway/Fly) with ffmpeg — not Vercel.
+- Live SOL swaps are not implemented (`executeLiveFill()` → 501).
+
+---
+
 ## Architecture
 
 ```

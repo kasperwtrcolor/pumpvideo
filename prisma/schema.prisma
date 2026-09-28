@@ -1,13 +1,20 @@
-// Prisma schema — PUMPCLIP-style "every clip is a coin" app.
-// SQLite for local dev; swap `provider` to "postgresql" for prod (no model changes needed).
+// Postgres, not SQLite: Vercel's filesystem is read-only and ephemeral, so a
+// file-backed DB cannot persist a single write. Locally we run Postgres too, so
+// dev and prod share one storage engine and migrations are identical.
+//
+// `url` must be the POOLED connection (Vercel/Neon pgbouncer) so serverless
+// invocations don't exhaust connections. `directUrl` is the unpooled one, used
+// by migrations which cannot run through a transaction pooler.
 
 generator client {
   provider = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 /// A tradable coin. Mirrors the real pump.fun market record so we never invent prices.
