@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated media (rendered by scripts/gen-clips.ts)
+/public/clips
+/public/thumbs
+/.clip-tmp
+
+# local sqlite db
+/prisma/dev.db
+/prisma/dev.db-journal

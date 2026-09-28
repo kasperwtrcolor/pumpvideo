@@ -1,0 +1,150 @@
+// Prisma schema — PUMPCLIP-style "every clip is a coin" app.
+// SQLite for local dev; swap `provider` to "postgresql" for prod (no model changes needed).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A tradable coin. Mirrors the real pump.fun market record so we never invent prices.
+model Coin {
+  id           String   @id @default(cuid())
+  mint         String   @unique // SPL mint address
+  provider     String   @default("PUMPFUN")
+  name         String
+  symbol       String
+  description  String?
+  imageUrl     String?
+
+  // live market state (raw integer strings — bigint-safe)
+  virtualSol    String @default("0") // lamports
+  virtualToken  String @default("0") // raw token units
+  realSol       String @default("0")
+  totalSupply   String @default("0")
+
+  priceSol      Float  @default(0) // SOL per whole token
+  marketCapSol  Float  @default(0)
+  change24hPct  Float  @default(0)
+  holders       Int    @default(0)
+  volume24hSol  Float  @default(0)
+
+  complete      Boolean @default(false) // bonding curve filled -> graduated to AMM
+  isBanned      Boolean @default(false) // pump.fun moderation flag; hide from feed
+  poolAddress   String?
+  creator       String?
+  twitter       String?
+  telegram      String?
+  website       String?
+
+  launchedAt    DateTime?
+  lastSyncedAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  clips     Clip[]
+  positions Position[]
+  prices    PricePoint[]
+
+  @@index([marketCapSol])
+  @@index([createdAt])
+}
+
+/// Price history. Written by the market keeper on every sync; powers the
+/// 24h change chip today and a sparkline/chart later.
+model PricePoint {
+  id        String   @id @default(cuid())
+  coinId    String
+  coin      Coin     @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  priceSol  Float
+  marketCapSol Float
+  at        DateTime @default(now())
+
+  @@index([coinId, at])
+}
+
+/// A short vertical clip. One clip = one front door into a coin.
+/// `source` lets us swap the seed/manual pipeline for a real TikTok ingester later.
+model Clip {
+  id        String   @id @default(cuid())
+  coinId    String
+  coin      Coin     @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  source    String   @default("SEED") // SEED | UPLOAD | TIKTOK
+  videoUrl  String   // /clips/<mint>.mp4 or an HLS manifest
+  thumbUrl  String?
+  /// Set by the transcoder once the asset actually exists. The feed only serves
+  /// ready clips, so a queued-but-unrendered clip never ships a broken <video>.
+  ready     Boolean  @default(false)
+  caption   String?
+  author    String?  @default("unclaimed")
+
+  likes     Int      @default(0)
+  shares    Int      @default(0)
+  comments  Int      @default(0)
+  views     Int      @default(0)
+  rank      Float    @default(0) // feed ordering score
+
+  createdAt DateTime @default(now())
+
+  @@index([coinId])
+  @@index([rank])
+}
+
+/// A viewer. Anonymous until they connect a Solana wallet.
+/// Every trader gets a paper account so the app is usable with zero wallet (PumpClip's "practice mode").
+model Trader {
+  id                String   @id @default(cuid())
+  handle            String   @unique // cookie/session identity, e.g. "anon-8f3a2c"
+  walletAddress     String?  @unique // set on connect
+  displayName       String?
+  avatarUrl         String?
+
+  practiceBalance   Float    @default(100) // SOL of play money
+  practiceStartBal  Float    @default(100)
+
+  createdAt         DateTime @default(now())
+  positions         Position[]
+  trades            Trade[]
+}
+
+/// Current holding per coin, per trader.
+model Position {
+  id         String @id @default(cuid())
+  traderId   String
+  trader     Trader @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  coinId     String
+  coin       Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  tokenAmount String // raw token units held
+  costSol     Float  @default(0) // total SOL spent (for PnL)
+  realizedSol Float  @default(0)
+
+  updatedAt  DateTime @updatedAt
+
+  @@unique([traderId, coinId])
+}
+
+/// Immutable trade log. `mode` makes practice vs live auditable in one table.
+model Trade {
+  id          String   @id @default(cuid())
+  traderId    String
+  trader      Trader   @relation(fields: [traderId], references: [id], onDelete: Cascade)
+
+  coinMint    String
+  symbol      String
+  side        String   // BUY | SELL
+  mode        String   @default("PRACTICE") // PRACTICE | LIVE
+
+  solAmount     Float
+  tokenAmount   String
+  priceSol      Float
+  feeSol        Float  @default(0)
+  txSig         String? // set for LIVE fills
+
+  createdAt   DateTime @default(now())
+
+  @@index([traderId, createdAt])
+}

@@ -1,36 +1,172 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PumpClip
 
-## Getting Started
+**Every clip is a coin you can buy.** A TikTok-style vertical feed where each clip is
+bound to a Solana memecoin, with one-tap buying inline — practice with play money
+first, no wallet required.
 
-First, run the development server:
+Built as a working MVP: real live market data from pump.fun, real bonding-curve
+fills, real vertical clip pipeline. The only thing deliberately not wired is
+spending actual SOL — see [Live trading](#live-trading-the-one-seam-that-isnt-wired).
+
+---
+
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npx prisma migrate dev          # creates prisma/dev.db (SQLite)
+npm run seed                    # pulls live pump.fun coins + renders a clip each
+npm run dev                     # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`npm run seed` = `ingest` (pump.fun → DB) then `clips` (ffmpeg → vertical MP4).
+First run takes a couple of minutes; it renders one 5s 720x1280 h264 clip per coin
+at ~1s each with `--concurrency 2`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Production build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run typecheck && npm run build && npm run start
+```
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## What's real vs. what's stubbed
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Piece | Status |
+| --- | --- |
+| Vertical snap feed, infinite scroll, autoplay/visibility | **real** |
+| Coin market data (price, mcap, reserves, graduation) | **real** — live pump.fun frontend API |
+| Bonding-curve fills + 1% fee + slippage | **real math**, simulated custody |
+| Practice accounts, positions, PnL, equity curve | **real** |
+| Clip pipeline (image → 9:16 MP4 + thumb via ffmpeg) | **real** |
+| Price history + 24h change | **real** (`PricePoint` rows from the market keeper) |
+| Wallet connect (Phantom) + address linking | **real** |
+| Live SOL swaps | **not wired** — `executeLiveFill()` throws |
+| TikTok/YouTube clip ingestion | **not built** — clips are synthesised from coin art |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Nothing fakes a fill. `/api/trade` with `mode: "LIVE"` returns **501** rather than
+pretending, and the UI says so.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Architecture
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+pump.fun frontend API ──► scripts/ingest.ts ──► Coin  ──► scripts/gen-clips.ts ──► /public/clips/*.mp4
+                                    │                                  │
+                                    ▼                                  ▼
+                                 PricePoint                        Clip (ready)
+                                                                       │
+   browser ──► /api/feed ─────────────────────────────────────────────┘
+      │           │
+      │           └─► lib/bonding-curve.ts   (constant product, k = vSol * vTok)
+      ▼
+   BuySheet ──► /api/trade ──► lib/trade-engine.ts ──► Position / Trade / Trader
+                                     │
+                                     └─► executeLiveFill()  ← the only stub
+```
+
+### Data model (`prisma/schema.prisma`)
+
+- **Coin** — live market state, reserves held as raw integer *strings* (bigint-safe).
+- **Clip** — one clip = one front door into a coin. `ready` gates it into the feed,
+  so a queued-but-unrendered clip never ships a broken `<video>`.
+- **PricePoint** — append-only history; powers the 24h change chip and PnL marks.
+- **Trader** — anonymous by default (cookie), wallet linkable. Practice balance is
+  the whole point: the app is fully usable with no wallet.
+- **Position / Trade** — holdings and an immutable fill log with `mode` so practice
+  and live fills live in one auditable table.
+
+### The curve
+
+pump.fun's bonding curve is a constant-product AMM over *virtual* reserves:
+
+```
+k = vSol * vTok
+buy : tokensOut = vTok - k / (vSol + solIn)      (solIn net of 1% fee)
+sell: solOut    = vSol - k / (vTok + tokenIn)    (net of 1% fee)
+```
+
+`lib/bonding-curve.ts` implements this in `bigint`. The client quotes with the same
+module so the preview matches the fill; the server re-quotes inside a transaction
+and is the source of truth. Practice buys **write the post-trade reserves back**,
+so a wave of buys actually moves the price for the next viewer — the same feedback
+loop the real product has, without spending SOL.
+
+---
+
+## Live trading (the one seam that isn't wired)
+
+`lib/trade-engine.ts` exports `executeLiveFill()`. Its signature matches the
+practice path on purpose, so the UI needs no branching. To finish it:
+
+1. `npm i @pump-fun/pump-sdk` (already a dependency) and build the `buy`/`sell`
+   instruction against the coin's `curvePubkey`/`mint`.
+2. Sign with the wallet from `components/WalletButton.tsx` (Phantom, via
+   `window.solana`) and send with `SOLANA_RPC_URL`.
+3. Write the signature into `Trade.txSig` and flip `liveReady` to `true` in
+   `/api/feed`.
+
+Until then, `mode: "LIVE"` is rejected with a 501 and a human-readable reason.
+
+---
+
+## Market keeper
+
+Reserves drift the moment you stop reading them. Run the keeper on a schedule:
+
+```bash
+npm run sync -- --limit 40        # or: npx tsx scripts/sync.ts --limit 40
+```
+
+```cron
+*/5 * * * * cd /srv/pumpclip && npx tsx scripts/sync.ts --limit 40 >> /var/log/pumpclip-sync.log 2>&1
+```
+
+Same logic is exposed as `POST /api/sync` so the app can self-heal on load without
+a scheduler. It is idempotent.
+
+---
+
+## The TikTok ingest seam
+
+PumpClip's real moat is scraping viral clips and binding them to coins. This repo
+deliberately stops short of that — synthesising a clip from the coin's own art
+instead, which keeps the pipeline shape identical:
+
+```
+source video ──► ffmpeg (9:16, HLS ladder) ──► object storage ──► Clip.videoUrl
+                                    ▲
+                                    └─ here is where a scraper drops a TikTok URL
+```
+
+To plug one in: write `Clip` rows with `source: "TIKTOK"` and an HLS `videoUrl`,
+set `ready`, and the feed serves them with no other change.
+
+---
+
+## Notes / gotchas
+
+- **Next.js 16**: `params` is a Promise (`await params` / `use(params)`), Turbopack
+  is the default bundler, `middleware` is `proxy`. Docs ship in
+  `node_modules/next/dist/docs/`.
+- **Identity bug to not reintroduce**: calling `resolveTrader()` twice in one
+  request creates two rows for a cookieless visitor — the write lands on one trader
+  and the cookie points at another, silently dropping every first trade. Always pass
+  the trader you already resolved into `withTrader(body, { trader, created })`.
+- **SQLite** is for local dev only (write contention). Swap `datasource.provider`
+  to `postgresql` for prod; no model changes needed.
+- **pump.fun API sort values** are literal: `market_cap`, `created_timestamp`,
+  `last_trade_timestamp`, `ath_market_cap`, `reply_count`. `created` 400s.
+- **Image hosts**: some coin images are X/Twitter CDN links that 403. The clip
+  generator falls back to a text-only gradient card, so rendering never fails.
+
+---
+
+## Screens
+
+- `/` — vertical clip feed. Hot / New / Top, mute toggle, rail actions, buy sheet.
+- `/coins` — coin index. Sort, search, graduation filter, header stats.
+- `/coin/[symbol]` — coin detail: clip hero, market state, clips, live fills, position.
+- `/portfolio` — practice book: equity, positions with PnL, sell, fill history.
