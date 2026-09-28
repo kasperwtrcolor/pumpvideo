@@ -34,8 +34,11 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+# any other .env variant (.env.prod, .env.staging, ...) must never be committed;
+# .env.example is the only env file that ships, as the deploy template.
+.env.*
 # ...but the template IS committed — it documents the required vars with
-# placeholders only, and it's the deploy reference.
+# placeholders only, and it's the deploy reference. Must stay AFTER `.env.*`.
 !.env.example
 
 # vercel
