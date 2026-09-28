@@ -15,6 +15,8 @@
     "clips": "tsx scripts/gen-clips.ts",
     "sync": "tsx scripts/sync.ts",
     "diag": "tsx scripts/diag-sync.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "scan-secrets": "tsx scripts/scan-secrets.ts",
     "seed": "tsx scripts/ingest.ts --top 40 --new 40 && tsx scripts/gen-clips.ts --limit 200 --concurrency 2"
   },
   "dependencies": {
