@@ -71,9 +71,18 @@ export function toCoinRecord(c: PumpCoin) {
   const vSol = BigInt(Math.round(c.virtual_sol_reserves ?? 0));
   const vTok = BigInt(Math.round(c.virtual_token_reserves ?? 0));
   const supply = BigInt(Math.round(c.total_supply ?? 0));
-  const price = vTok > 0n
-    ? Number(vSol) / 1e9 / (Number(vTok) / 1e6)
-    : 0;
+  const wholeSupply = Number(supply) / 1e6;
+
+  // Once a coin graduates to an AMM, pump.fun stops moving the virtual reserves
+  // (they freeze at the "curve filled" sentinel) while `market_cap` keeps
+  // tracking the real pool. Deriving price from frozen reserves would paint every
+  // graduated coin with the same bogus number, so use the live market cap instead.
+  const price =
+    c.complete && wholeSupply > 0 && (c.market_cap ?? 0) > 0
+      ? (c.market_cap as number) / wholeSupply
+      : vTok > 0n
+        ? Number(vSol) / 1e9 / (Number(vTok) / 1e6)
+        : 0;
 
   return {
     mint: c.mint,
@@ -86,7 +95,12 @@ export function toCoinRecord(c: PumpCoin) {
     realSol: BigInt(Math.round(c.real_sol_reserves ?? 0)).toString(),
     totalSupply: supply.toString(),
     priceSol: price,
-    marketCapSol: c.market_cap ?? price * (Number(supply) / 1e6),
+    // Keep market cap *consistent with the price we display*. On the curve all
+    // supply circulates, so derived is exact; graduated coins trade in a pool
+    // where circulating < total, so the API's figure is the better one.
+    marketCapSol: c.complete
+      ? (c.market_cap ?? price * wholeSupply)
+      : price * wholeSupply,
     complete: Boolean(c.complete),
     poolAddress: c.pool_address || null,
     creator: c.creator || null,
