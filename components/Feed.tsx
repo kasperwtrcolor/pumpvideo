@@ -20,10 +20,10 @@ type Scope = "all" | "following";
 
 const SORTS: { key: Sort; label: string; hint: string }[] = [
   // The hint is what the rail *means*, since a one-word label can't carry it.
-  // Hot is not "popular" — it is the coins that moved most in the last five
-  // minutes, up or down. Top is not "best" — it is a market-cap floor.
-  { key: "hot", label: "Hot", hint: "biggest 5-minute moves, up or down" },
-  { key: "new", label: "New", hint: "freshest clips" },
+  // Hot is a gainers board, not "popular"; New is new *tokens*, not new clips;
+  // Top is a market-cap floor, not "best".
+  { key: "hot", label: "Hot", hint: "biggest 5-minute increase" },
+  { key: "new", label: "New", hint: "tokens launched in the last 30 minutes" },
   { key: "top", label: "Top", hint: "market cap $100k and above" },
 ];
 

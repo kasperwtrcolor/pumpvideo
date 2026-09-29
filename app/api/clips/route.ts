@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { fetchCoin, toCoinRecord } from "@/lib/pumpfun";
+import { rankFor } from "@/lib/ingest";
 import { notifyClipPublished, publicAuthor } from "@/lib/social";
 import {
   MAX_UPLOAD_BYTES,
@@ -153,6 +154,19 @@ export async function POST(req: NextRequest) {
       ready: true,
       caption: parsed.caption ?? null,
       author: publicAuthor(trader),
+      // The same ordering score every other clip gets.
+      //
+      // This is not cosmetic. The shuffled feed pages through a *cut* of the
+      // highest-ranked clips, so a clip left at the default rank of 0 sits dead
+      // last and is excluded from the pool entirely — an uploaded clip was
+      // invisible in the feed even to the person who had just posted it, while
+      // being perfectly visible on their profile. Scoring it here is what puts
+      // it in front of anybody at all.
+      rank: rankFor({
+        marketCapSol: coin.marketCapSol,
+        launchedAt: coin.launchedAt,
+        complete: coin.complete,
+      }),
       // No wallet means no creator payout — the 1% falls through to the treasury
       // rather than being silently dropped.
       creatorWallet: trader.walletAddress,

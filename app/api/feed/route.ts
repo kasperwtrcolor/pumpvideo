@@ -12,20 +12,22 @@ export const dynamic = "force-dynamic";
 type Sort = "hot" | "new" | "top";
 
 /**
- * How many clips the shuffle draws from when a `seed` is supplied.
+ * Upper bound on how many clips the shuffle draws from.
  *
- * Shuffling has to be a permutation of a *fixed* list for offset pagination to
- * stay coherent (see lib/shuffle.ts), so we take the top N by the chosen sort
- * and permute those. N is the working set the feed actually walks through in a
- * session; beyond it the ranking is a long tail nobody scrolls to. Growing the
- * catalog past this just changes which clips are poolable, never the paging.
+ * Bounds worst-case work for the pool query (ids only), not what the feed is
+ * *allowed* to show. It must comfortably exceed the catalog: while this was 300,
+ * the 300th-ranked clip scored 11.5 and everything below it — 153 of 453 ready
+ * clips — could never be served on any rail. Uploaded clips were the worst
+ * affected, because a clip on an established coin scores low on the freshness
+ * term and landed under the cut permanently; the person who posted it could not
+ * see it in the feed at all.
  *
- * The sort still means something under a shuffle: it chooses the *pool* ("top"
- * shuffles the biggest, "new" shuffles the freshest) and the seed only decides
- * the order within it. Shuffling the entire catalog instead would make the sort
- * rail decorative.
+ * The rails' *gates* are what give a sort its meaning under a shuffle (Hot's
+ * top 40 gainers, Top's market-cap floor, New's window), so a pool that covers
+ * the catalog costs the ranking nothing and stops the cap from silently hiding
+ * content.
  */
-const POOL = 300;
+const POOL = 2000;
 
 /**
  * How many coins the Hot wall draws from.
@@ -40,6 +42,9 @@ const POOL = 300;
  * sort only picks the pool; a pool of everything makes the rail decorative).
  */
 const HOT_POOL = 40;
+
+/** How far back "New" looks. A new token, not a new clip. */
+const NEW_WINDOW_MS = 30 * 60_000;
 
 /** "Top" means a market cap of at least this many USD. */
 const TOP_MIN_USD = 100_000;
@@ -77,17 +82,19 @@ export async function GET(req: NextRequest) {
   // requests, and the shuffled permutation would shift between pages — dropping
   // some clips and repeating others.
   //
-  // Hot and Top rank by a property of the *coin*, not the clip: Hot lifts the
-  // coins that moved most over the last five minutes (in either direction), Top
-  // the coins above the market-cap floor. `rank` is the tiebreaker so a wall of
-  // equally-volatile coins still has a stable order to permute.
+  // Hot, New and Top rank by a property of the *coin*, not the clip:
+  //   Hot — the biggest 5-minute *increase*, so it is a gainers board.
+  //   New — coins launched most recently.
+  //   Top — the largest market caps.
+  // `rank` (and then `id`) breaks ties so a wall of equal-scoring coins still has
+  // a stable order to permute.
   const orderBy =
     sort === "new"
-      ? [{ createdAt: "desc" as const }, { id: "asc" as const }]
+      ? [{ coin: { launchedAt: "desc" as const } }, { id: "asc" as const }]
       : sort === "top"
         ? [{ coin: { marketCapSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
         : sort === "hot"
-          ? [{ coin: { volatility5m: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+          ? [{ coin: { change5mPct: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
           : [{ rank: "desc" as const }, { id: "asc" as const }];
 
   // SOL/USD is needed up here because the Top floor is a USD figure and market
@@ -149,9 +156,19 @@ export async function GET(req: NextRequest) {
   const buildWhere = (gate: boolean) => {
     const coin: Prisma.CoinWhereInput = mint ? { mint } : { isBanned: false };
     if (gate && !mint) {
-      // Hot excludes coins the keeper has not measured any movement on (0). A
-      // coin with a real, positive score — however small — is a coin that moved.
-      if (sort === "hot") coin.volatility5m = { gt: 0 };
+      // Hot is a gainers board: coins that are *up* over the last five minutes,
+      // biggest rise first. A coin that fell is not hot, it is just down.
+      if (sort === "hot") coin.change5mPct = { gt: 0 };
+      // New is new *tokens*, not new clips — a token launched in the last half
+      // hour. `launchedAt` is the real launch time; `createdAt` is the fallback
+      // for the rare coin pump.fun gave us no launch stamp for.
+      if (sort === "new") {
+        const cut = new Date(Date.now() - NEW_WINDOW_MS);
+        coin.OR = [
+          { launchedAt: { gte: cut } },
+          { launchedAt: null, createdAt: { gte: cut } },
+        ];
+      }
       if (sort === "top") coin.marketCapSol = { gte: TOP_MIN_USD / usd };
     }
     return {
@@ -169,6 +186,33 @@ export async function GET(req: NextRequest) {
     total = await prisma.clip.count({ where });
   }
 
+  /**
+   * The clips this viewer uploaded, always.
+   *
+   * Fetching them separately from `where` is the point: it means they ignore the
+   * pool cutoff, the rail's gate and the `since` freeze. Someone who has just
+   * posted a clip must be able to find it — being told "it's live" and then
+   * never seeing it, because it landed below the ranked cut or after the session
+   * cutoff, is indistinguishable from the upload having failed.
+   *
+   * Skipped on the Following wall, which is defined by who you follow, and on a
+   * single-coin view, where the clip would already be there.
+   *
+   * Read-only on purpose: `readTrader` never creates a row, so an anonymous
+   * visitor scrolling cannot trigger a write.
+   */
+  const ownIds: string[] = [];
+  if (!mint && sp.get("scope") !== "following") {
+    const viewer = await readTrader();
+    if (viewer) {
+      const own = await prisma.clip.findMany({
+        where: { ready: true, uploadedById: viewer.id, coin: { isBanned: false } },
+        select: { id: true },
+      });
+      ownIds.push(...own.map((c) => c.id));
+    }
+  }
+
   let clips: Awaited<ReturnType<typeof loadClips>>;
 
   if (seed) {
@@ -180,12 +224,25 @@ export async function GET(req: NextRequest) {
     const pool = await prisma.clip.findMany({
       where,
       orderBy,
-      // Hot permutes only its top movers, so the wall is volatile even after the
-      // shuffle; every other rail permutes the whole working set.
+      // Hot permutes only its top gainers, so the wall is a gainers board even
+      // after the shuffle; every other rail permutes the whole working set.
       take: sort === "hot" ? Math.min(HOT_POOL, total) : Math.min(POOL, total),
       select: { id: true },
     });
-    const page = seededShuffle(pool, seed).slice(offset, offset + limit);
+
+    // Union the viewer's own clips in. A Set both de-duplicates (the clip is
+    // usually already in the pool) and, being insertion-ordered, keeps the
+    // ranked pool first — the shuffle is over a stable list either way.
+    const poolIds = new Set(pool.map((p) => p.id));
+    for (const id of ownIds) poolIds.add(id);
+
+    const ids = [...poolIds];
+    // `total` is what hasMore compares against, so it has to describe the set we
+    // actually page through — otherwise the wall would stop before reaching a
+    // clip that was appended.
+    total = Math.max(total, ids.length);
+
+    const page = seededShuffle(ids.map((id) => ({ id })), seed).slice(offset, offset + limit);
     clips = await loadClips(page.map((p) => p.id));
   } else {
     clips = await prisma.clip.findMany({

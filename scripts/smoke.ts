@@ -213,28 +213,47 @@ async function main() {
     feed.items.map((it) => it.coin.launchedAt ?? it.coin.createdAt ?? "MISSING").slice(0, 1).join(""),
   );
 
-  // Hot is the top movers by 5-minute volatility. Its gate excludes coins the
-  // keeper has not measured, so every item carries a positive score — unless the
-  // gate matched nothing and the feed fell back, in which case they are all
-  // unmeasured. A *mix* is the shape a broken filter would produce, so the test
-  // allows "all measured" or "none measured" and fails on anything between.
+  // Hot is a gainers board: ordered by the 5-minute change, descending, and
+  // gated to coins that are actually up. If the gate matches nothing the feed
+  // falls back to the ranked catalog, in which case every item is unmeasured —
+  // a *mix* is the shape a broken filter would produce and is what this fails on.
   const hotRes = await fetch(`${BASE}/api/feed?sort=hot&limit=8`);
   const hot = (await hotRes.json()) as {
-    items: { coin: { volatility5m?: number } }[];
+    items: { coin: { change5mPct?: number } }[];
     total: number;
   };
   check("hot feed returns items", hot.items.length > 0, `${hot.total} clips`);
-  const hotVols = hot.items.map((it) => it.coin.volatility5m ?? 0);
+  const hotChg = hot.items.map((it) => it.coin.change5mPct ?? 0);
   check(
-    "hot feed is ordered by volatility (descending)",
-    hotVols.every((v, i) => i === 0 || hotVols[i - 1] >= v),
-    hotVols.map((v) => v.toFixed(2)).join(" ≥ "),
+    "hot feed is ordered by 5-minute increase (descending)",
+    hotChg.every((v, i) => i === 0 || hotChg[i - 1] >= v),
+    hotChg.map((v) => `${v.toFixed(2)}%`).join(" ≥ "),
   );
-  const hotMeasured = hotVols.filter((v) => v > 0).length;
+  const hotUp = hotChg.filter((v) => v > 0).length;
   check(
-    "hot feed is all-movers or fully ungated — never a mix",
-    hotMeasured === 0 || hotMeasured === hotVols.length,
-    `${hotMeasured}/${hotVols.length} carried a movement score`,
+    "hot feed is a gainers board — all up, or fully ungated",
+    hotUp === 0 || hotUp === hotChg.length,
+    `${hotUp}/${hotChg.length} up over 5m`,
+  );
+
+  // New is new *tokens*: launched within the last 30 minutes, newest first. Same
+  // all-or-nothing rule when the window is empty.
+  const newRes = await fetch(`${BASE}/api/feed?sort=new&limit=8`);
+  const newFeed = (await newRes.json()) as {
+    items: { coin: { launchedAt: string | null; createdAt: string | null } }[];
+    total: number;
+  };
+  check("new feed returns items", newFeed.items.length > 0, `${newFeed.total} clips`);
+  const ageOf = (it: (typeof newFeed.items)[number]) =>
+    new Date(it.coin.launchedAt ?? it.coin.createdAt ?? 0).getTime();
+  // Tolerance covers the fallback firing, plus the gap between the request and
+  // this assertion.
+  const freshCut = Date.now() - 30 * 60_000 - 120_000;
+  const fresh = newFeed.items.filter((it) => ageOf(it) >= freshCut).length;
+  check(
+    "new feed is all-fresh tokens or fully ungated — never a mix",
+    fresh === 0 || fresh === newFeed.items.length,
+    `${fresh}/${newFeed.items.length} launched in the last 30m`,
   );
 
   const topRes = await fetch(`${BASE}/api/feed?sort=top&limit=8`);
@@ -257,6 +276,28 @@ async function main() {
     "every top-feed coin is at $100k market cap or above",
     topCaps.every((mc) => mc * topUsd >= 99_000),
     topCaps.map((mc) => `$${Math.round((mc * topUsd) / 1000)}k`).join(", "),
+  );
+
+  // Regression for the reason uploaded clips were invisible.
+  //
+  // The shuffled wall pages through a *pool* of clips, and `total` advertises how
+  // deep that wall is. When the pool was capped below the advertised total, the
+  // tail was unreachable: asking for the last page returned nothing, while the
+  // feed still claimed those clips existed. Any clip below the ranked cut — which
+  // was every user upload — could never be served, and nothing in the API said
+  // so. The page at `total - 3` must therefore return something.
+  const deepSeed = "smoke-deep-pool";
+  const probe = (await (await fetch(`${BASE}/api/feed?limit=3&seed=${deepSeed}`)).json()) as {
+    total: number;
+  };
+  const deepOffset = Math.max(0, probe.total - 3);
+  const deep = (await (
+    await fetch(`${BASE}/api/feed?limit=3&offset=${deepOffset}&seed=${deepSeed}`)
+  ).json()) as { items: { id: string }[] };
+  check(
+    "the tail of the shuffled wall is reachable (pool covers what total claims)",
+    probe.total <= 3 || deep.items.length > 0,
+    `total=${probe.total}, offset=${deepOffset} → ${deep.items.length} items`,
   );
 
   console.log("\nlive quotes");
