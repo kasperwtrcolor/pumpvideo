@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { FeedItemDTO, FeedResponse } from "@/lib/types";
+import type { AccountResponse, FeedItemDTO, FeedResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
@@ -12,6 +12,7 @@ import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
 import { StarIcon } from "./Icons";
+import { LiveDot, Sparkline } from "./PriceTicker";
 
 type Sort = "hot" | "new" | "top";
 
@@ -26,6 +27,19 @@ const WATCH_BEFORE_PROMPT = 5;
 
 /** Session key holding this visit's shuffle seed. */
 const SEED_KEY = "pumpclip_seed";
+
+/**
+ * Session key holding the moment this visit's feed pool was frozen.
+ *
+ * The seed pins the *order* of the pool, not the *contents* of it. The catalog
+ * grows continuously — fresh tokens are ingested every few minutes — and the
+ * shuffle runs over the whole list, so one new clip landing mid-session
+ * re-permutes everything and page 2 can repeat what page 1 already showed. That
+ * is precisely the repeat-clips bug the seeded shuffle exists to prevent.
+ * Filtering the pool to clips that already existed when the session started
+ * makes the permutation stable for as long as the visit lasts.
+ */
+const SINCE_KEY = "pumpclip_since";
 
 /** Live engagement numbers for one clip, seeded from the feed and then updated
  *  from whatever the server reports after each action. */
@@ -46,6 +60,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   // The shuffle seed. Null until after mount: sessionStorage does not exist
   // during the server render, so it cannot be read in a useState initialiser.
   const [seed, setSeed] = useState<string | null>(null);
+
+  /** Epoch-ms cutoff of this visit's feed pool, minted with the seed. */
+  const [since, setSince] = useState<string | null>(null);
   const [items, setItems] = useState<FeedItemDTO[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -61,10 +78,19 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [sheetIdx, setSheetIdx] = useState<number | null>(null);
   const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
   const [solUsd, setSolUsd] = useState(initialSolUsd);
+  // Live prices from /api/quotes, keyed by mint. Anything absent falls back to
+  // the price the feed shipped with.
+  const [quotes, setQuotes] = useState<Record<string, QuoteDTO>>({});
 
   const scroller = useRef<HTMLDivElement>(null);
   // A view is counted once per clip per session — re-scrolling shouldn't inflate it.
   const viewed = useRef<Set<string>>(new Set());
+  // Per-mint price history for the sparkline, and "latest value" refs so the
+  // poll timer can read what is on screen without being torn down on every
+  // scroll and rebuild.
+  const history = useRef<Map<string, number[]>>(new Map());
+  const itemsRef = useRef<FeedItemDTO[]>([]);
+  const activeRef = useRef(0);
 
   /**
    * Read this session's shuffle seed, minting one on the first visit.
@@ -76,28 +102,35 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
    */
   useEffect(() => {
     let s: string | null = null;
+    let t: string | null = null;
     try {
       s = sessionStorage.getItem(SEED_KEY);
+      t = sessionStorage.getItem(SINCE_KEY);
     } catch {
       /* storage blocked */
     }
-    if (!s) {
+    // Mint both together: a seed without its cutoff is a pool that can still
+    // shift underneath the pagination, so half a pair is no better than none.
+    if (!s || !t) {
       s = newSeed();
+      t = String(Date.now());
       try {
         sessionStorage.setItem(SEED_KEY, s);
+        sessionStorage.setItem(SINCE_KEY, t);
       } catch {
-        /* storage blocked — the in-memory seed still works */
+        /* storage blocked — the in-memory pair still works */
       }
     }
     setSeed(s);
+    setSince(t);
   }, []);
 
   const load = useCallback(
-    async (nextSort: Sort, nextOffset: number, nextSeed: string, replace: boolean) => {
+    async (nextSort: Sort, nextOffset: number, nextSeed: string, nextSince: string, replace: boolean) => {
       setLoading(true);
       try {
         const r = await fetch(
-          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}&seed=${encodeURIComponent(nextSeed)}`,
+          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}&seed=${encodeURIComponent(nextSeed)}&since=${encodeURIComponent(nextSince)}`,
           { cache: "no-store" },
         );
         const j = (await r.json()) as FeedResponse;
@@ -136,23 +169,28 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   // (Re)load from the top whenever the sort or the seed changes. A new seed is
   // a fresh permutation, so the list has to be rebuilt rather than appended to.
   useEffect(() => {
-    if (!seed) return;
+    if (!seed || !since) return;
     setItems([]);
     setOffset(0);
     setHasMore(true);
     setActive(0);
-    void load(sort, 0, seed, true);
-  }, [sort, seed, load]);
+    void load(sort, 0, seed, since, true);
+  }, [sort, seed, since, load]);
 
   /** Reshuffle: mint a new seed and start the wall again. */
   const reshuffle = useCallback(() => {
     const s = newSeed();
+    // A fresh pool cutoff too: reshuffling is a deliberate restart, so clips
+    // ingested since the visit began are fair game again.
+    const t = String(Date.now());
     try {
       sessionStorage.setItem(SEED_KEY, s);
+      sessionStorage.setItem(SINCE_KEY, t);
     } catch {
       /* storage blocked */
     }
     setSeed(s);
+    setSince(t);
     scroller.current?.scrollTo({ top: 0 });
   }, []);
 
@@ -193,10 +231,103 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   // Prefetch the next page a screen before the end.
   useEffect(() => {
-    if (seed && hasMore && !loading && items.length > 0 && active >= items.length - 3) {
-      void load(sort, offset, seed, false);
+    if (seed && since && hasMore && !loading && items.length > 0 && active >= items.length - 3) {
+      void load(sort, offset, seed, since, false);
     }
-  }, [active, hasMore, loading, items.length, offset, sort, seed, load]);
+  }, [active, hasMore, loading, items.length, offset, sort, seed, since, load]);
+
+  // Keep the "latest value" refs current so the poll timer below can read them.
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  // Bumped on every quotes refresh so the sparkline redraws with the new samples.
+  const [tick, setTick] = useState(0);
+
+  /**
+   * Refresh the live prices for the clips around the viewport.
+   *
+   * The feed used to render whatever the market keeper had last written and then
+   * never change until a reload — which is exactly why the numbers looked
+   * frozen. Asking only about the clips near the screen keeps the request small
+   * (a dozen mints) and the DexScreener call rate low.
+   */
+  const pollQuotes = useCallback(async () => {
+    const list = itemsRef.current;
+    if (list.length === 0) return;
+    const from = Math.max(0, activeRef.current - 2);
+    const to = Math.min(list.length, activeRef.current + 4);
+    const mints = Array.from(new Set(list.slice(from, to).map((it) => it.coin.mint)));
+    if (mints.length === 0) return;
+    try {
+      const r = await fetch(`/api/quotes?mints=${encodeURIComponent(mints.join(","))}`, {
+        cache: "no-store",
+      });
+      if (!r.ok) return;
+      const j = (await r.json()) as QuotesResponse;
+      if (!j.quotes) return;
+      setQuotes((q) => ({ ...q, ...j.quotes }));
+      for (const [mint, qt] of Object.entries(j.quotes)) {
+        const arr = history.current.get(mint) ?? [];
+        arr.push(qt.priceSol);
+        if (arr.length > 48) arr.splice(0, arr.length - 48);
+        history.current.set(mint, arr);
+      }
+      setTick((t) => t + 1);
+    } catch {
+      /* offline — keep the last known prices on screen rather than blank them */
+    }
+  }, []);
+
+  useEffect(() => {
+    void pollQuotes();
+    const t = setInterval(() => void pollQuotes(), 12_000);
+    return () => clearInterval(t);
+  }, [pollQuotes]);
+
+  // Start the ticker the moment a page of clips lands.
+  useEffect(() => {
+    if (items.length > 0) void pollQuotes();
+  }, [items.length, pollQuotes]);
+
+  /**
+   * Re-read the caller's book and fold it into the clips on screen.
+   *
+   * The feed payload already carries positions, but a fill happens *after* it
+   * loaded — so without this the clip you just bought would still show as
+   * unheld until a reload. /api/account is the same source the portfolio uses.
+   */
+  const syncPositions = useCallback(async () => {
+    try {
+      const r = await fetch("/api/account", { cache: "no-store" });
+      if (!r.ok) return;
+      const j = (await r.json()) as AccountResponse;
+      const byMint = new Map((j.positions ?? []).map((p) => [p.mint, p]));
+      setItems((prev) =>
+        prev.map((it) => {
+          const p = byMint.get(it.coin.mint);
+          return {
+            ...it,
+            position: p
+              ? {
+                  tokens: p.tokens,
+                  costSol: p.costSol,
+                  entrySol: p.tokens > 0 ? p.costSol / p.tokens : 0,
+                  valueSol: p.valueSol,
+                  pnlSol: p.pnlSol,
+                  pnlPct: p.pnlPct,
+                }
+              : null,
+          };
+        }),
+      );
+    } catch {
+      /* offline is fine — the rows keep their previous position state */
+    }
+  }, []);
 
   const onFilled = useCallback(
     (idx: number, priceSol: number) => {
@@ -204,8 +335,12 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
         prev.map((it, i) => (i === idx ? { ...it, coin: { ...it.coin, priceSol } } : it)),
       );
       void refresh();
+      // The clip we just bought now has a position — attach it without waiting
+      // for a reload.
+      void syncPositions();
+      void pollQuotes();
     },
-    [refresh],
+    [refresh, syncPositions, pollQuotes],
   );
 
   const onLike = useCallback(
@@ -375,6 +510,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             favorited={Boolean(favorited[it.id])}
             counts={counts[it.id] ?? countsOf(it)}
             solUsd={solUsd}
+            quote={quotes[it.coin.mint]}
+            samples={history.current.get(it.coin.mint) ?? []}
+            tick={tick}
             onLike={() => void onLike(it)}
             onFavorite={() => void onFavorite(it)}
             onBuy={() => setSheetIdx(i)}
@@ -474,6 +612,9 @@ function ClipPanel({
   favorited,
   counts,
   solUsd,
+  quote,
+  samples,
+  tick,
   onLike,
   onFavorite,
   onBuy,
@@ -487,6 +628,9 @@ function ClipPanel({
   favorited: boolean;
   counts: Counts;
   solUsd: number;
+  quote?: QuoteDTO;
+  samples: number[];
+  tick: number;
   onLike: () => void;
   onFavorite: () => void;
   onBuy: () => void;
@@ -495,7 +639,33 @@ function ClipPanel({
 }) {
   const { coin } = item;
   const vid = useRef<HTMLVideoElement>(null);
-  const up = coin.change24hPct >= 0;
+
+  // Live values win over the ones the feed shipped with; until the first quote
+  // lands, the shipped price is what is shown.
+  const price = quote?.priceSol ?? coin.priceSol;
+  const marketCap = quote?.marketCapSol ?? coin.marketCapSol;
+  const change = quote?.change24hPct ?? coin.change24hPct;
+
+  // The trader's own position, if any. When they hold, the price is coloured
+  // against *their entry* — above it green, below it red — instead of the
+  // generic 24h move. That is the number they actually care about.
+  const pos = item.position ?? null;
+  const livePnlPct = pos && pos.entrySol > 0 ? ((price - pos.entrySol) / pos.entrySol) * 100 : null;
+  const livePnlSol = pos ? pos.tokens * price - pos.costSol : 0;
+  const inProfit = pos ? price >= pos.entrySol : change >= 0;
+
+  // Flash the price chip for a moment whenever it moves, so a tick is visible
+  // even when the digits change by too little to notice.
+  const prevPrice = useRef(price);
+  const [flash, setFlash] = useState<"" | "tick-up" | "tick-down">("");
+  useEffect(() => {
+    const prev = prevPrice.current;
+    prevPrice.current = price;
+    if (!Number.isFinite(prev) || prev <= 0 || price === prev) return;
+    setFlash(price > prev ? "tick-up" : "tick-down");
+    const t = setTimeout(() => setFlash(""), 700);
+    return () => clearTimeout(t);
+  }, [price]);
 
   useEffect(() => {
     if (vid.current) vid.current.muted = muted;
@@ -607,22 +777,58 @@ function ClipPanel({
           {item.caption ?? `$${sym(coin.symbol)}`}
         </p>
 
+        {/* Live sparkline — what the price has done while you have been watching.
+            Keyed on the poll counter so it redraws with each new sample. */}
+        {samples.length > 1 && (
+          <div className="max-w-[210px]">
+            <Sparkline key={tick} samples={samples} />
+          </div>
+        )}
+
+        {/* The trader's own line, when they hold this coin: everything above the
+            entry price is green, everything below is red. */}
+        {pos && (
+          <div
+            className={`inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-2 py-1 text-[11px] font-bold tabular-nums ${
+              inProfit ? "bg-up/20 text-up" : "bg-down/20 text-down"
+            }`}
+          >
+            <span>
+              you · {fmtSol(pos.tokens)} ${sym(coin.symbol)}
+            </span>
+            <span className="font-semibold opacity-80">entry {fmtPrice(pos.entrySol)}</span>
+            <span className="font-black">
+              {livePnlPct != null ? fmtPct(livePnlPct) : "—"}
+            </span>
+            <span className="font-semibold opacity-90">
+              {livePnlSol >= 0 ? "+" : ""}
+              {fmtSol(livePnlSol)} SOL
+            </span>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-black tracking-wide text-white">
             ${sym(coin.symbol)}
           </span>
           <span
             className={`rounded-md px-2 py-1 text-[11px] font-bold tabular-nums ${
-              up ? "bg-up/20 text-up" : "bg-down/20 text-down"
+              change >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"
             }`}
           >
-            {fmtPct(coin.change24hPct)}
+            {fmtPct(change)}
           </span>
           <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-semibold text-white/85 tabular-nums">
-            MC {fmtSol(coin.marketCapSol)} SOL · {fmtUsd(coin.marketCapSol * solUsd)}
+            MC {fmtSol(marketCap)} SOL · {fmtUsd(marketCap * solUsd)}
           </span>
-          <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-semibold text-white/85 tabular-nums">
-            {fmtPrice(coin.priceSol)} SOL
+          <span
+            className={`rounded-md px-2 py-1 text-[11px] font-bold tabular-nums ${flash} ${
+              inProfit ? "text-up" : "text-down"
+            }`}
+            style={{ backgroundColor: "rgba(0,0,0,0.55)" }}
+          >
+            {fmtPrice(price)} SOL
+            <LiveDot live={Boolean(quote?.live)} />
           </span>
           {coin.complete && (
             <span className="rounded-md bg-accent/25 px-2 py-1 text-[11px] font-bold text-accent">

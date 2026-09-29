@@ -141,6 +141,7 @@ async function main() {
       coin: { mint: string; symbol: string };
       videoUrl: string | null;
       thumbUrl: string | null;
+      position: unknown;
     }[];
     total: number;
   };
@@ -171,6 +172,48 @@ async function main() {
     );
   }
 
+  // Every item must carry the key even when nobody is holding — the feed colours
+  // a clip against the viewer's entry price, and `undefined` vs `null` is the
+  // difference between "no position" and "the field was never serialised".
+  check(
+    "feed serialises a position field on every item",
+    feed.items.every((it) => "position" in it),
+    feed.items.map((it) => (it.position ? "held" : "none")).join(","),
+  );
+
+  console.log("\nlive quotes");
+  const qMints = feed.items.map((it) => it.coin.mint);
+  const qRes = await fetch(`${BASE}/api/quotes?mints=${qMints.join(",")}`);
+  const qBody = (await qRes.json()) as {
+    quotes: Record<string, { priceSol: number; marketCapSol: number; change24hPct: number; live: boolean }>;
+  };
+  check("quotes route responds", qRes.ok, `${qRes.status}`);
+  const quoted = Object.values(qBody.quotes ?? {});
+  check(
+    "quotes covers the feed's mints",
+    quoted.length > 0,
+    `${quoted.length}/${qMints.length} answered`,
+  );
+  // A zero or NaN price would render as "—" or, worse, colour a holding green by
+  // accident. Every quote that comes back has to be a real positive number.
+  check(
+    "every quote is a positive finite price",
+    quoted.every((q) => Number.isFinite(q.priceSol) && q.priceSol > 0),
+  );
+  check(
+    "every quote has a positive market cap",
+    quoted.every((q) => Number.isFinite(q.marketCapSol) && q.marketCapSol > 0),
+  );
+  // Junk in must not 500 the ticker. The route filters to plausible mints and
+  // answers an empty map rather than erroring.
+  const qJunk = await fetch(`${BASE}/api/quotes?mints=not-a-mint,also-not-one,%%%`);
+  const qJunkBody = (await qJunk.json()) as { quotes: Record<string, unknown> };
+  check(
+    "junk mints are ignored, not an error",
+    qJunk.ok && Object.keys(qJunkBody.quotes ?? {}).length === 0,
+    `${qJunk.status}`,
+  );
+
   // The feed is shuffled per session. These three assertions are what make the
   // shuffle safe to ship: it must be *stable* for a given seed (or paging would
   // repeat and skip clips) and yet actually differ across seeds (or it isn't a
@@ -179,22 +222,26 @@ async function main() {
   console.log("\nfeed shuffle");
   const seedA = "smoke-seed-aaaa";
   const seedB = "smoke-seed-bbbb";
+  // The client sends a pool cutoff alongside the seed (see components/Feed.tsx):
+  // the seed fixes the order, the cutoff fixes the contents. Both are needed for
+  // the paging guarantee, so the test exercises them the way the app does.
+  const since = String(Date.now());
   const ids = (j: { items: { id: string }[] }) => j.items.map((i) => i.id).join(",");
 
-  const a1 = (await (await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}`)).json()) as {
+  const a1 = (await (await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}&since=${since}`)).json()) as {
     items: { id: string }[];
   };
-  const a1again = (await (await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}`)).json()) as {
-    items: { id: string }[];
-  };
+  const a1again = (await (
+    await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}&since=${since}`)
+  ).json()) as { items: { id: string }[] };
   check(
-    "same seed returns an identical order",
+    "same seed and pool cutoff returns an identical order",
     ids(a1) === ids(a1again),
     ids(a1).slice(0, 40),
   );
 
   const a2 = (await (
-    await fetch(`${BASE}/api/feed?limit=3&offset=3&seed=${seedA}`)
+    await fetch(`${BASE}/api/feed?limit=3&offset=3&seed=${seedA}&since=${since}`)
   ).json()) as { items: { id: string }[] };
   const overlap = a2.items.filter((x) => a1.items.some((y) => y.id === x.id));
   check(
@@ -203,15 +250,26 @@ async function main() {
     `overlap ${overlap.length}`,
   );
 
-  const b1 = (await (await fetch(`${BASE}/api/feed?limit=12&seed=${seedB}`)).json()) as {
+  const b1 = (await (await fetch(`${BASE}/api/feed?limit=12&seed=${seedB}&since=${since}`)).json()) as {
     items: { id: string }[];
   };
-  const aWide = (await (await fetch(`${BASE}/api/feed?limit=12&seed=${seedA}`)).json()) as {
+  const aWide = (await (await fetch(`${BASE}/api/feed?limit=12&seed=${seedA}&since=${since}`)).json()) as {
     items: { id: string }[];
   };
   check(
     "a different seed produces a different order",
     aWide.items.length > 1 && ids(aWide) !== ids(b1),
+  );
+
+  // The cutoff has to actually exclude clips, not just sit in the URL. A cutoff
+  // in 2001 predates every clip in the catalog, so the pool must come back empty.
+  const ancient = (await (
+    await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}&since=1000000000001`)
+  ).json()) as { items: { id: string }[] };
+  check(
+    "a pool cutoff that predates the catalog excludes every clip",
+    ancient.items.length === 0,
+    `${ancient.items.length} items`,
   );
 
   console.log("\nfavourites");

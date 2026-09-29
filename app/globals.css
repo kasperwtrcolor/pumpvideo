@@ -91,6 +91,40 @@ body {
 }
 
 /*
+ * A price that just moved. The flash is short and returns to the chip's own
+ * background, so it reads as a tick rather than a permanent state — the
+ * permanent state is the text colour, which says whether you are up or down.
+ */
+@keyframes tick-up {
+  0% {
+    background-color: color-mix(in oklab, var(--color-up) 60%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes tick-down {
+  0% {
+    background-color: color-mix(in oklab, var(--color-down) 60%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.tick-up {
+  animation: tick-up 0.7s ease-out;
+}
+.tick-down {
+  animation: tick-down 0.7s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tick-up,
+  .tick-down {
+    animation: none;
+  }
+}
+
+/*
  * Slow drift for a clip that has no video yet.
  *
  * A freshly ingested token has art but no rendered video, and a still frame in a

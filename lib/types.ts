@@ -43,7 +43,42 @@ export type ClipDTO = {
   favoritedByMe?: boolean;
 };
 
-export type FeedItemDTO = ClipDTO & { coin: CoinDTO };
+export type FeedItemDTO = ClipDTO & {
+  coin: CoinDTO;
+  /**
+   * The caller's holding in this coin, or null when they own none. Lets the
+   * feed colour a clip against the viewer's own entry price instead of a
+   * generic 24h change.
+   */
+  position?: PositionLite | null;
+};
+
+/**
+ * A live quote for one coin, as returned by /api/quotes.
+ *
+ * `live` distinguishes a DexScreener price from the market keeper's last write:
+ * the two look identical but only one is genuinely second-by-second, and the
+ * ticker is honest about which it is showing.
+ */
+export type QuoteDTO = {
+  priceSol: number;
+  marketCapSol: number;
+  change24hPct: number;
+  live: boolean;
+};
+
+export type QuotesResponse = { quotes: Record<string, QuoteDTO> };
+
+/** The caller's position in a coin, sized at the current price. */
+export type PositionLite = {
+  tokens: number;
+  costSol: number;
+  /** SOL per whole token at the moment it was bought — the green/red line. */
+  entrySol: number;
+  valueSol: number;
+  pnlSol: number;
+  pnlPct: number;
+};
 
 export type FeedResponse = {
   items: FeedItemDTO[];

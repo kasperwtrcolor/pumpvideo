@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { withTrader, serializeCoin, serializeClip } from "@/lib/api";
+import { withTrader, serializeCoin, serializeClip, positionLite } from "@/lib/api";
 import { resolveTrader } from "@/lib/session";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 import { solUsd } from "@/lib/sol-price";
@@ -44,6 +44,16 @@ export async function GET(req: NextRequest) {
   const mint = sp.get("mint");
   const seed = sp.get("seed")?.slice(0, 64) ?? "";
 
+  // Pool cutoff for the shuffled feed. The seed fixes the *order*; this fixes the
+  // *contents*, so a clip ingested while the visitor is scrolling can't re-permute
+  // the wall out from under them (which would repeat clips across pages).
+  // Clamped to now, and ignored unless it's a plausible epoch-ms value.
+  const sinceRaw = Number(sp.get("since"));
+  const since =
+    Number.isFinite(sinceRaw) && sinceRaw > 1_000_000_000_000
+      ? new Date(Math.min(sinceRaw, Date.now()))
+      : null;
+
   // Every ordering carries `id` as a final tiebreaker. Without it two clips with
   // the same rank/timestamp could come back in either order on different
   // requests, and the shuffled permutation would shift between pages — dropping
@@ -58,6 +68,7 @@ export async function GET(req: NextRequest) {
   const where = {
     ready: true,
     coin: mint ? { mint } : { isBanned: false },
+    ...(since ? { createdAt: { lte: since } } : {}),
   };
 
   const total = await prisma.clip.count({ where });
@@ -96,8 +107,9 @@ export async function GET(req: NextRequest) {
   const { trader, created } = await resolveTrader();
 
   const ids = clips.map((c) => c.id);
+  const coinIds = clips.map((c) => c.coinId);
 
-  const [likedIds, favoriteIds] = trader
+  const [likedIds, favoriteIds, positionRows] = trader
     ? await Promise.all([
         prisma.clipLike
           .findMany({
@@ -111,17 +123,29 @@ export async function GET(req: NextRequest) {
             select: { clipId: true },
           })
           .then((rows) => new Set(rows.map((r) => r.clipId))),
+        // The caller's holdings across this window, so each clip can be coloured
+        // against their own entry price. One query for the page, not one per clip.
+        prisma.position.findMany({
+          where: { traderId: trader.id, coinId: { in: coinIds } },
+          select: { coinId: true, tokenAmount: true, costSol: true },
+        }),
       ])
-    : [new Set<string>(), new Set<string>()];
+    : [new Set<string>(), new Set<string>(), []];
+
+  const positionByCoin = new Map(positionRows.map((p) => [p.coinId, p]));
 
   return withTrader(
     {
-      items: clips.map((c) => ({
-        ...serializeClip(c),
-        likedByMe: likedIds.has(c.id),
-        favoritedByMe: favoriteIds.has(c.id),
-        coin: serializeCoin(c.coin),
-      })),
+      items: clips.map((c) => {
+        const pos = positionByCoin.get(c.coinId);
+        return {
+          ...serializeClip(c),
+          likedByMe: likedIds.has(c.id),
+          favoritedByMe: favoriteIds.has(c.id),
+          coin: serializeCoin(c.coin),
+          position: pos ? positionLite(pos, c.coin.priceSol) : null,
+        };
+      }),
       nextOffset: offset + clips.length,
       total,
       hasMore: offset + clips.length < total,

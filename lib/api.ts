@@ -2,8 +2,32 @@ import { NextResponse } from "next/server";
 import { resolveTrader, TRADER_COOKIE } from "./session";
 import type { TraderRecord } from "./session";
 import { liveTradingEnabled } from "./capabilities";
+import { rawTokensToUi } from "./bonding-curve";
 
 export type { TraderRecord };
+
+/**
+ * The caller's holding in one coin, sized against a given price.
+ *
+ * `entrySol` is the number the feed colours against: everything above it is
+ * green, everything below is red. It is derived (cost / tokens) rather than
+ * stored, so it stays correct after a partial sell has trimmed the cost basis.
+ */
+export function positionLite(
+  p: { tokenAmount: string; costSol: number },
+  priceSol: number,
+) {
+  const tokens = rawTokensToUi(p.tokenAmount);
+  const valueSol = tokens * priceSol;
+  return {
+    tokens,
+    costSol: p.costSol,
+    entrySol: tokens > 0 ? p.costSol / tokens : 0,
+    valueSol,
+    pnlSol: valueSol - p.costSol,
+    pnlPct: p.costSol > 0 ? ((valueSol - p.costSol) / p.costSol) * 100 : 0,
+  };
+}
 
 /**
  * JSON response that also establishes the anonymous trader cookie when needed.

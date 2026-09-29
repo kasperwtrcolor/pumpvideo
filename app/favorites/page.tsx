@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import type { FeedItemDTO, FavoritesResponse } from "@/lib/types";
+import type { FeedItemDTO, FavoritesResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
 import { useAuth } from "@/components/AuthBridge";
 import { useTrader } from "@/components/TraderProvider";
 import { BuySheet } from "@/components/BuySheet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { StarIcon } from "@/components/Icons";
+import { LiveDot } from "@/components/PriceTicker";
 import { artUrl } from "@/lib/art-url";
 import { fmtPct, fmtPrice, fmtSol, fmtUsd, sym } from "@/lib/format";
 
@@ -28,6 +29,7 @@ export default function FavoritesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<FeedItemDTO | null>(null);
+  const [quotes, setQuotes] = useState<Record<string, QuoteDTO>>({});
 
   const load = useCallback(async () => {
     if (!authenticated) {
@@ -56,6 +58,33 @@ export default function FavoritesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live quotes for the saved coins, refreshed on a timer so the prices in the
+  // list move without a reload. The list is bounded (one page), so one request
+  // covers the whole screen.
+  useEffect(() => {
+    const mints = Array.from(new Set(items.map((it) => it.coin.mint)));
+    if (mints.length === 0) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/quotes?mints=${encodeURIComponent(mints.join(","))}`, {
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        const j = (await r.json()) as QuotesResponse;
+        if (!cancelled && j.quotes) setQuotes((q) => ({ ...q, ...j.quotes }));
+      } catch {
+        /* offline — keep the last known prices */
+      }
+    };
+    void poll();
+    const t = setInterval(() => void poll(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [items]);
 
   /** Unsave straight from the list. The row disappears because it is gone. */
   const unsave = useCallback(
@@ -123,6 +152,7 @@ export default function FavoritesPage() {
                 key={it.id}
                 item={it}
                 solUsd={solUsd}
+                quote={quotes[it.coin.mint]}
                 onBuy={() => setSheet(it)}
                 onUnsave={() => void unsave(it)}
               />
@@ -167,17 +197,27 @@ export default function FavoritesPage() {
 function FavoriteRow({
   item,
   solUsd,
+  quote,
   onBuy,
   onUnsave,
 }: {
   item: FeedItemDTO;
   solUsd: number;
+  quote?: QuoteDTO;
   onBuy: () => void;
   onUnsave: () => void;
 }) {
   const { coin } = item;
-  const up = coin.change24hPct >= 0;
   const still = item.thumbUrl ?? artUrl(coin.imageUrl);
+
+  const price = quote?.priceSol ?? coin.priceSol;
+  const marketCap = quote?.marketCapSol ?? coin.marketCapSol;
+  const change = quote?.change24hPct ?? coin.change24hPct;
+
+  // Held? Then colour against the entry price, not the 24h move.
+  const pos = item.position ?? null;
+  const livePnlPct = pos && pos.entrySol > 0 ? ((price - pos.entrySol) / pos.entrySol) * 100 : null;
+  const inProfit = pos ? price >= pos.entrySol : change >= 0;
 
   return (
     <div className="flex items-center gap-3 overflow-hidden rounded-2xl border border-line bg-panel p-2.5">
@@ -213,21 +253,26 @@ function FavoriteRow({
         )}
 
         <div className="mt-1.5 flex items-center gap-2 text-[11px] tabular-nums">
-          <span className="font-bold">{fmtSol(coin.marketCapSol)} SOL</span>
+          <span className="font-bold">{fmtSol(marketCap)} SOL</span>
           <span className="text-white/40">·</span>
-          <span className="text-muted">{fmtPrice(coin.priceSol)} SOL</span>
+          <span className={inProfit ? "text-up" : "text-down"}>
+            {fmtPrice(price)} SOL
+            <LiveDot live={Boolean(quote?.live)} />
+          </span>
           {solUsd > 0 && (
             <>
               <span className="text-white/40">·</span>
               <span className="text-muted">
-                {fmtUsd(coin.marketCapSol * solUsd)} cap
+                {fmtUsd(marketCap * solUsd)} cap
               </span>
             </>
           )}
         </div>
 
-        <div className={`mt-0.5 text-[10px] font-bold tabular-nums ${up ? "text-up" : "text-down"}`}>
-          {fmtPct(coin.change24hPct)} 24h
+        <div className={`mt-0.5 text-[10px] font-bold tabular-nums ${inProfit ? "text-up" : "text-down"}`}>
+          {pos
+            ? `you ${livePnlPct != null ? fmtPct(livePnlPct) : ""} · entry ${fmtPrice(pos.entrySol)}`
+            : `${fmtPct(change)} 24h`}
         </div>
       </div>
 

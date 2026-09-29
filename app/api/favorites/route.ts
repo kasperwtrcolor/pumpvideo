@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
-import { serializeClip, serializeCoin } from "@/lib/api";
+import { serializeClip, serializeCoin, positionLite } from "@/lib/api";
 import { solUsd } from "@/lib/sol-price";
 
 export const dynamic = "force-dynamic";
@@ -49,15 +49,30 @@ export async function GET(req: NextRequest) {
   // claimed to have consumed and the pager would loop over the same page.
   // The cost is that a page containing a hidden clip renders fewer cards — which
   // is the honest outcome, not a bug.
+  // Positions for the coins on this page, so each row can be coloured against
+  // the viewer's own entry price rather than a generic 24h change.
+  const coinIds = rows.filter((r) => r.clip.ready && !r.clip.coin.isBanned).map((r) => r.clip.coinId);
+  const positions = coinIds.length
+    ? await prisma.position.findMany({
+        where: { traderId: trader.id, coinId: { in: coinIds } },
+        select: { coinId: true, tokenAmount: true, costSol: true },
+      })
+    : [];
+  const positionByCoin = new Map(positions.map((p) => [p.coinId, p]));
+
   const items = rows
     .filter((r) => r.clip.ready && !r.clip.coin.isBanned)
-    .map((r) => ({
-      ...serializeClip(r.clip),
-      likedByMe: false,
-      favoritedByMe: true,
-      coin: serializeCoin(r.clip.coin),
-      savedAt: r.createdAt.toISOString(),
-    }));
+    .map((r) => {
+      const pos = positionByCoin.get(r.clip.coinId);
+      return {
+        ...serializeClip(r.clip),
+        likedByMe: false,
+        favoritedByMe: true,
+        coin: serializeCoin(r.clip.coin),
+        position: pos ? positionLite(pos, r.clip.coin.priceSol) : null,
+        savedAt: r.createdAt.toISOString(),
+      };
+    });
 
   return NextResponse.json({
     items,
