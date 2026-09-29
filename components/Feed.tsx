@@ -74,7 +74,15 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const { toast, refresh } = useTrader();
   const { enabled: authEnabled, authenticated, login, getToken } = useAuth();
 
-  const [sort, setSort] = useState<Sort>("hot");
+  /**
+   * New is the default wall.
+   *
+   * The app opens on the newest tokens rather than on Hot: Hot is a gainers
+   * board and is empty whenever nothing has moved in the last five minutes, so
+   * opening on it made the front page look broken on a quiet day. "What just
+   * launched" always has an answer.
+   */
+  const [sort, setSort] = useState<Sort>("new");
   // The shuffle seed. Null until after mount: sessionStorage does not exist
   // during the server render, so it cannot be read in a useState initialiser.
   const [seed, setSeed] = useState<string | null>(null);

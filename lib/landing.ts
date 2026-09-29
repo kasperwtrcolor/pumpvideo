@@ -1,0 +1,56 @@
+import { prisma } from "@/lib/db";
+import { artUrl } from "@/lib/art-url";
+
+/**
+ * The artwork for the welcome screen's wall.
+ *
+ * Assembled on the server, deliberately. Doing this in the component would mean
+ * the wall paints as brand-gradient placeholders and then swaps to real art a
+ * moment later — a visible flash, on the very first screen anyone sees. Reading
+ * it here puts real tokens in the first paint instead.
+ *
+ * Real catalogue data, never stock imagery: the background is a claim about what
+ * the app is, so it had better be what the app is actually serving.
+ */
+export type LandingTile = { art: string | null; video: string | null };
+
+/**
+ * How many moving-video tiles the wall carries.
+ *
+ * Small on purpose. A dozen decoding videos in an animated container looks no
+ * better than two and costs real battery, and these are the ones most likely to
+ * be slow, so they are a garnish rather than a load-bearing part of the wall.
+ */
+const MAX_VIDEOS = 2;
+
+/** Enough art to overfill each of the three columns several times over. */
+const ART_TILES = 60;
+
+export async function landingTiles(): Promise<LandingTile[]> {
+  const [coins, clips] = await Promise.all([
+    // Largest first: recognition is the point of the wall, and the bigger tokens
+    // are the ones with finished, non-blank artwork.
+    prisma.coin.findMany({
+      where: { isBanned: false, imageUrl: { not: null } },
+      orderBy: { marketCapSol: "desc" },
+      take: ART_TILES,
+      select: { imageUrl: true },
+    }),
+    prisma.clip.findMany({
+      where: { ready: true, videoUrl: { not: null } },
+      orderBy: { rank: "desc" },
+      take: MAX_VIDEOS,
+      select: { videoUrl: true },
+    }),
+  ]);
+
+  const tiles: LandingTile[] = [];
+  for (const c of coins) {
+    const art = artUrl(c.imageUrl);
+    if (art) tiles.push({ art, video: null });
+  }
+  for (const c of clips) {
+    if (c.videoUrl) tiles.push({ art: null, video: c.videoUrl });
+  }
+  return tiles;
+}

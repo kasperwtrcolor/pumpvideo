@@ -79,6 +79,37 @@ async function main() {
     !/(❤️|🤍|💬|🔊|🔇)/u.test(home),
   );
 
+  // The welcome screen. It must be offered to a first-time visitor and withheld
+  // from one who has already dismissed it — and the decision has to happen in the
+  // server render, which is why the cookie is sent with the request rather than
+  // being applied by client script after the fact.
+  console.log("\nlanding");
+  check(
+    "a first-time visitor is served the welcome screen",
+    home.includes("Where clips") && home.includes("Just watch"),
+  );
+  check(
+    "the welcome screen offers login, not wallet-connect",
+    home.includes(">Login<") || home.includes("Login\n"),
+    "button label",
+  );
+  const returning = await (
+    await fetch(`${BASE}/`, { headers: { cookie: "pumpclip_welcome=1" } })
+  ).text();
+  check(
+    "a returning visitor is not served the welcome screen",
+    !returning.includes("Just watch") && returning.includes("aria-label=\"Feed\""),
+    `${returning.length}b`,
+  );
+  // The mosaic is real artwork, not placeholder blocks: every tile must be
+  // pulling from a catalogue URL. A wall of gradients would mean the fetch that
+  // fills it is broken and nobody noticed.
+  check(
+    "the mosaic is filled with real token art",
+    /class="[^"]*object-cover/.test(home),
+    "has tile imagery",
+  );
+
   // The account page is where wallet management, the live book and sign-out now
   // live; the old modal sheet and the /portfolio tab are gone. /portfolio is
   // kept only as a redirect, so a stale bookmark still lands somewhere useful.
