@@ -17,6 +17,9 @@ const SORTS: { key: Sort; label: string }[] = [
   { key: "top", label: "Top" },
 ];
 
+/** How many clips a signed-out visitor can watch before we invite them in. */
+const WATCH_BEFORE_PROMPT = 5;
+
 /** Live engagement numbers for one clip, seeded from the feed and then updated
  *  from whatever the server reports after each action. */
 type Counts = { likes: number; shares: number; comments: number; views: number };
@@ -30,7 +33,7 @@ const countsOf = (it: FeedItemDTO): Counts => ({
 
 export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const { toast, refresh } = useTrader();
-  const { authenticated, login, getToken } = useAuth();
+  const { enabled: authEnabled, authenticated, login, getToken } = useAuth();
 
   const [sort, setSort] = useState<Sort>("hot");
   const [items, setItems] = useState<FeedItemDTO[]>([]);
@@ -39,6 +42,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
+  // Login nudge. `watched` counts distinct clips actually played this session.
+  const [watched, setWatched] = useState(0);
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [counts, setCounts] = useState<Record<string, Counts>>({});
   const [sheetIdx, setSheetIdx] = useState<number | null>(null);
@@ -112,6 +118,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             if (id && !viewed.current.has(id)) {
               viewed.current.add(id);
               void fetch(`/api/clips/${id}/view`, { method: "POST" }).catch(() => {});
+              setWatched(viewed.current.size);
             }
           } else {
             vid.pause();
@@ -207,6 +214,28 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     [authenticated, getToken, toast],
   );
 
+  // Remember a dismissal for the session, so the invite is offered once rather
+  // than every time the count crosses the threshold.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("pumpclip_login_nudge") === "1") setNudgeDismissed(true);
+    } catch {
+      /* storage blocked — worst case the nudge reappears next navigation */
+    }
+  }, []);
+
+  const dismissNudge = useCallback(() => {
+    setNudgeDismissed(true);
+    try {
+      sessionStorage.setItem("pumpclip_login_nudge", "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const showLoginNudge =
+    authEnabled && !authenticated && !nudgeDismissed && watched >= WATCH_BEFORE_PROMPT;
+
   return (
     <div className="relative h-full">
       {/* sort rail */}
@@ -292,6 +321,42 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             }))
           }
         />
+      )}
+
+      {showLoginNudge && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="login-nudge-title"
+          className="fixed inset-0 z-[75] grid place-items-center bg-black/80 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
+        >
+          <button aria-label="Dismiss" className="absolute inset-0" onClick={dismissNudge} />
+          <div className="relative w-full max-w-sm rounded-2xl border border-line bg-panel p-5 text-center">
+            <h2 id="login-nudge-title" className="text-base font-bold tracking-tight">
+              Create a wallet to trade
+            </h2>
+            <p className="mt-2 text-[12px] leading-relaxed text-muted">
+              That&apos;s {WATCH_BEFORE_PROMPT} clips in. Log in with email, Google or X and a
+              self-custodial Solana wallet is created for you — then any clip in the feed is
+              one tap to buy.
+            </p>
+            <button
+              onClick={() => {
+                dismissNudge();
+                login();
+              }}
+              className="burn-gradient mt-4 w-full rounded-xl py-3 text-sm font-black tracking-wide text-black active:scale-[0.99]"
+            >
+              Log in
+            </button>
+            <button
+              onClick={dismissNudge}
+              className="mt-2 w-full rounded-xl border border-line py-2.5 text-[12px] font-bold text-muted hover:text-ink"
+            >
+              Keep browsing
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

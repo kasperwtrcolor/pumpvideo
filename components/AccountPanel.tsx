@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAddFunds, usePrivy } from "@privy-io/react-auth";
 import {
   useExportWallet,
@@ -43,8 +44,9 @@ function Row({
   );
 }
 
-export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AccountPanel() {
   const { user, logout, getAccessToken } = usePrivy();
+  const router = useRouter();
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { exportWallet } = useExportWallet();
@@ -85,10 +87,8 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
   }, [address]);
 
   useEffect(() => {
-    if (!open) return;
-    setView("main");
     void loadBalance();
-  }, [open, loadBalance]);
+  }, [loadBalance]);
 
   const copy = useCallback(async (text: string) => {
     try {
@@ -194,16 +194,15 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
       await fetch("/api/auth/session", { method: "DELETE" });
       await logout();
       await refresh();
-      onClose();
+      // The account route is useless without a session, so go back to the feed.
+      router.push("/");
       toast("Signed out");
     } catch {
       toast("Sign out failed", "bad");
     } finally {
       setBusy(false);
     }
-  }, [logout, refresh, onClose, toast]);
-
-  if (!open) return null;
+  }, [logout, refresh, router, toast]);
 
   const sol = balance ?? 0;
   const maxWithdraw = balance != null ? Math.max(0, (balance - BASE_FEE_LAMPORTS) / LAMPORTS) : 0;
@@ -216,9 +215,7 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
 
   return (
     <>
-      <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm">
-      <button aria-label="Close" className="absolute inset-0" onClick={onClose} />
-      <div className="sheet-up relative flex max-h-[88dvh] w-full max-w-[440px] flex-col overflow-y-auto rounded-t-3xl border-t border-line bg-panel p-4 pb-8">
+      <section className="rounded-2xl border border-line bg-panel p-4">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {view !== "main" && (
@@ -239,12 +236,6 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
                     : "Export key"}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="h-7 w-7 rounded-full border border-line text-muted hover:text-ink"
-          >
-            ✕
-          </button>
         </div>
 
         {/* ---------- main ---------- */}
@@ -332,7 +323,6 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
                   <Link
                     key={l.doc}
                     href={l.href}
-                    onClick={onClose}
                     className="flex items-center justify-between py-1.5 text-[11px] text-muted hover:text-ink"
                   >
                     <span>{l.label}</span>
@@ -503,8 +493,7 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
             {user ? " It may still be being created — reopen in a moment." : ""}
           </div>
         )}
-        </div>
-      </div>
+      </section>
 
       {confirmLogout && (
         <div

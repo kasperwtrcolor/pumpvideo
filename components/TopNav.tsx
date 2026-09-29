@@ -8,11 +8,12 @@ import { AccountButton } from "./AccountButton";
 import { LogoLockup } from "./Logo";
 import { fmtSol } from "@/lib/format";
 
+// Portfolio was folded into /account, which the account button already opens —
+// so the nav carries one fewer tab.
 const TABS = [
   { href: "/", label: "Feed" },
   { href: "/coins", label: "Coins" },
   { href: "/upload", label: "Upload" },
-  { href: "/portfolio", label: "Portfolio" },
 ];
 
 export function TopNav() {

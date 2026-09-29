@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { privyEnabled } from "./PrivyRoot";
-import { WalletSheet } from "./WalletSheet";
 import { useTrader } from "./TraderProvider";
 import { shortAddr } from "@/lib/format";
 
 /**
  * Account entry point in the nav.
+ *
+ * When signed in this is a link to the /account route rather than a button that
+ * opened a modal — wallet management, the live book and sign-out all live on
+ * that page, so there is no overlay to misposition on a small screen.
  *
  * Split into a guard + an inner component on purpose: `usePrivy()` throws when
  * there is no `PrivyProvider` above it, and hooks cannot be called
@@ -23,7 +26,6 @@ export function AccountButton() {
 function AccountButtonInner() {
   const { ready, authenticated, login } = usePrivy();
   const { trader } = useTrader();
-  const [open, setOpen] = useState(false);
 
   if (!ready) {
     return (
@@ -52,26 +54,23 @@ function AccountButtonInner() {
   const label = addr ? shortAddr(addr, 3) : "Account";
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        title={addr ?? "Your account"}
-        className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-1.5 text-[11px] font-semibold text-ink transition hover:border-accent"
-      >
-        {trader?.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={trader.avatarUrl}
-            alt=""
-            className="h-4 w-4 rounded-full object-cover"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <span className="h-1.5 w-1.5 rounded-full bg-up" />
-        )}
-        {label}
-      </button>
-      <WalletSheet open={open} onClose={() => setOpen(false)} />
-    </>
+    <Link
+      href="/account"
+      title={addr ?? "Your account"}
+      className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-1.5 text-[11px] font-semibold text-ink transition hover:border-accent"
+    >
+      {trader?.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={trader.avatarUrl}
+          alt=""
+          className="h-4 w-4 rounded-full object-cover"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <span className="h-1.5 w-1.5 rounded-full bg-up" />
+      )}
+      {label}
+    </Link>
   );
 }

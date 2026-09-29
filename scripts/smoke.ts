@@ -32,10 +32,29 @@ async function main() {
   console.log(`smoke test → ${BASE}\n`);
 
   console.log("pages");
-  for (const p of ["/", "/coins", "/portfolio", "/legal/terms", "/legal/privacy"]) {
+  for (const p of ["/", "/coins", "/account", "/portfolio", "/legal/terms", "/legal/privacy"]) {
     const r = await fetch(`${BASE}${p}`);
     check(p, r.ok, `${r.status}`);
   }
+
+  // The account page is where wallet management, the live book and sign-out now
+  // live; the old modal sheet and the /portfolio tab are gone. /portfolio is
+  // kept only as a redirect, so a stale bookmark still lands somewhere useful.
+  const acctHtml = await (await fetch(`${BASE}/account`)).text();
+  check(
+    "account page renders (not a 404 shell)",
+    acctHtml.includes("Account") && !acctHtml.includes("This page could not be found"),
+    acctHtml.length > 0 ? `${acctHtml.length}b` : "empty",
+  );
+
+  const pf = await fetch(`${BASE}/portfolio`, { redirect: "manual" });
+  const loc = pf.headers.get("location") ?? "";
+  check(
+    "/portfolio redirects to /account",
+    (pf.status === 307 || pf.status === 308 || pf.status === 302 || pf.status === 301) &&
+      loc.includes("/account"),
+    `${pf.status} → ${loc || "no location"}`,
+  );
 
   // The legal docs must actually render their substance, not just return 200.
   const termsHtml = await (await fetch(`${BASE}/legal/terms`)).text();
