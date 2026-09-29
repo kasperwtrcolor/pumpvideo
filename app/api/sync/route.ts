@@ -34,7 +34,22 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (secret) {
+
+  // Fail CLOSED. An auth gate that silently disables itself when its env var is
+  // missing is worse than no gate: the endpoint looks protected in code review
+  // while being wide open in production. That is exactly what happened here —
+  // CRON_SECRET was never set on the Vercel project, so anyone could trigger a
+  // full keeper sweep and burn RPC + pump.fun rate limits.
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      return Response.json(
+        { error: "NOT_CONFIGURED", detail: "CRON_SECRET is not set on this deployment" },
+        { status: 503 },
+      );
+    }
+    // Local dev: no secret configured, allow it so `npm run sync` style work
+    // isn't blocked on setup.
+  } else {
     const auth = req.headers.get("authorization");
     if (auth !== `Bearer ${secret}`) {
       return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
