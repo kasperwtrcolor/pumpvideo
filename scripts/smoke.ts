@@ -40,11 +40,15 @@ async function main() {
   // The account page is where wallet management, the live book and sign-out now
   // live; the old modal sheet and the /portfolio tab are gone. /portfolio is
   // kept only as a redirect, so a stale bookmark still lands somewhere useful.
+  //
+  // Assert on positive markers, never on the absence of "This page could not be
+  // found": Next ships its not-found boundary inside the RSC flight payload of
+  // every page, so that string is present even on a perfectly good route.
   const acctHtml = await (await fetch(`${BASE}/account`)).text();
   check(
-    "account page renders (not a 404 shell)",
-    acctHtml.includes("Account") && !acctHtml.includes("This page could not be found"),
-    acctHtml.length > 0 ? `${acctHtml.length}b` : "empty",
+    "account page renders its real content",
+    acctHtml.includes(">Account<") && acctHtml.includes("Sign in to trade"),
+    `${acctHtml.length}b`,
   );
 
   const pf = await fetch(`${BASE}/portfolio`, { redirect: "manual" });
