@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { withTrader, serializeCoin, serializeClip } from "@/lib/api";
 import { rawTokensToUi } from "@/lib/bonding-curve";
 import { resolveTrader } from "@/lib/session";
+import { publicAuthor } from "@/lib/social";
 
 export const dynamic = "force-dynamic";
 
@@ -33,11 +34,19 @@ export async function GET(
     where: { coinMint: coin.mint },
     orderBy: { createdAt: "desc" },
     take: 25,
-    include: { trader: { select: { handle: true } } },
+    // `username`/`displayName` only — never `handle`, which is the session
+    // cookie value. Echoing even part of it into a public trade feed would
+    // publish session material for every trader who has bought this coin.
+    include: { trader: { select: { username: true, displayName: true } } },
   });
 
   const position = await prisma.position.findUnique({
     where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
+  });
+
+  const followsToken = await prisma.tokenFollow.findUnique({
+    where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
+    select: { id: true },
   });
 
   const held = position ? rawTokensToUi(position.tokenAmount) : 0;
@@ -45,13 +54,14 @@ export async function GET(
   return withTrader(
     {
       coin: serializeCoin(coin),
+      following: Boolean(followsToken),
       clips: coin.clips.map(serializeClip),
       trades: trades.map((t) => ({
         side: t.side,
         symbol: t.symbol,
         solAmount: t.solAmount,
         priceSol: t.priceSol,
-        handle: t.trader.handle.replace(/^anon-/, "").slice(0, 6),
+        who: publicAuthor(t.trader),
         at: t.createdAt,
       })),
       position: position

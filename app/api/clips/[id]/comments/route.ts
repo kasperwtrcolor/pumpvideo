@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
+import { publicAuthor } from "@/lib/social";
 import { readTrader } from "@/lib/session";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 
@@ -20,7 +21,7 @@ function serialize(
     id: string;
     body: string;
     createdAt: Date;
-    trader: { handle: string; displayName: string | null; avatarUrl: string | null };
+    trader: { username: string | null; displayName: string | null; avatarUrl: string | null };
   },
   meId: string | null,
   authorId: string,
@@ -28,7 +29,9 @@ function serialize(
   return {
     id: c.id,
     body: c.body,
-    author: c.trader.displayName || c.trader.handle.replace(/^anon-/, "").slice(0, 8),
+    // Never the session handle. A slice of it used to be shown here, which put
+    // session-derived material on a public screen.
+    author: publicAuthor(c.trader),
     avatarUrl: c.trader.avatarUrl,
     mine: meId !== null && meId === authorId,
     at: c.createdAt,
@@ -51,7 +54,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     orderBy: { createdAt: "desc" },
     take: 100,
     include: {
-      trader: { select: { handle: true, displayName: true, avatarUrl: true } },
+      trader: { select: { username: true, displayName: true, avatarUrl: true } },
     },
   });
 
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const [created, updated] = await prisma.$transaction([
     prisma.clipComment.create({
       data: { clipId: id, traderId: trader.id, body: parsed.body },
-      include: { trader: { select: { handle: true, displayName: true, avatarUrl: true } } },
+      include: { trader: { select: { username: true, displayName: true, avatarUrl: true } } },
     }),
     prisma.clip.update({ where: { id }, data: { comments: { increment: 1 } } }),
   ]);

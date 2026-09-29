@@ -36,6 +36,17 @@ model Coin {
   priceSol     Float @default(0) // SOL per whole token
   marketCapSol Float @default(0)
   change24hPct Float @default(0)
+  /// Net price move over the trailing ~5 minutes, in percent. Sourced from
+  /// Dexscreener's native `m5` for graduated coins, and from the delta between
+  /// our own consecutive PricePoints for on-curve ones (the keeper samples every
+  /// 5 minutes, so one sample back *is* the 5-minute mark).
+  change5mPct  Float @default(0)
+  /// Unsigned 5-minute volatility, used to rank the Hot feed. It is the sum of
+  /// absolute step moves across the recent samples, not the size of the net
+  /// move — so a coin that ran up *and* gave it back (a genuine reversal) scores
+  /// higher than one that drifted the same distance in a straight line. That is
+  /// what "gained and lost" means: both directions, both ranked.
+  volatility5m Float @default(0)
   holders      Int   @default(0)
   volume24hSol Float @default(0)
 
@@ -54,8 +65,10 @@ model Coin {
   clips     Clip[]
   positions Position[]
   prices    PricePoint[]
+  followers TokenFollow[]
 
   @@index([marketCapSol])
+  @@index([volatility5m])
   @@index([createdAt])
 }
 
@@ -119,10 +132,12 @@ model Clip {
   commentRows ClipComment[]
   shareRows   ClipShare[]
   favoriteRows ClipFavorite[]
+  notifications Notification[]
 
   @@index([coinId])
   @@index([rank])
   @@index([ready, rank])
+  @@index([createdAt])
 }
 
 /// A viewer. Created anonymously on first request so a clip can be viewed with
@@ -141,6 +156,19 @@ model Trader {
   displayName   String?
   avatarUrl     String?
 
+  /// Public handle. Optional on purpose: a viewer can watch, upload and even be
+  /// followed by id without ever claiming one. What a username buys is a
+  /// linkable, searchable, human-readable identity — so it is an upgrade, not a
+  /// gate. Stored lowercase; uniqueness is case-insensitive as a result.
+  username String? @unique
+  bio      String?
+
+  /// Denormalised social counts. The profile renders on every follow and the
+  /// feed can badge a creator, so an aggregate per render would be wasteful —
+  /// these are maintained by the follow/unfollow transaction that changes them.
+  followerCount  Int @default(0)
+  followingCount Int @default(0)
+
   // --- Privy identity. All null for a pure anonymous viewer. ---
   privyDid    String? @unique // "did:privy:…"
   email       String?
@@ -157,7 +185,18 @@ model Trader {
   shares    ClipShare[]
   favorites ClipFavorite[]
 
+  /// People who follow this trader.
+  followers Follow[] @relation("FollowTo")
+  /// People this trader follows.
+  following Follow[] @relation("FollowFrom")
+
+  tokenFollows TokenFollow[]
+
+  notifications     Notification[] @relation("NotifTo")
+  notificationsSent Notification[] @relation("NotifFrom")
+
   @@index([privyDid])
+  @@index([followerCount])
 }
 
 /// Current holding per coin, per trader — a mirror of what the wallet holds.
@@ -263,4 +302,77 @@ model ClipFavorite {
 
   @@unique([clipId, traderId])
   @@index([traderId, createdAt])
+}
+
+/// One trader following another.
+///
+/// The unique key makes the toggle idempotent — following twice cannot produce
+/// two rows, so a follower count can never be inflated by a double tap. The
+/// count on `Trader` is maintained alongside the row inside the same
+/// transaction, which is what keeps the denormalised number honest.
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    Trader   @relation("FollowFrom", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   Trader   @relation("FollowTo", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId, createdAt])
+  @@index([followerId, createdAt])
+}
+
+/// Following a *token* rather than a person.
+///
+/// A trader follows a coin because they want its market in front of them, and
+/// every clip bound to that coin then shows up in their Following feed —
+/// including clips uploaded by people they do not follow. That is the useful
+/// half: a coin's clips come from many creators, and following the coin is how
+/// you see all of them without following each one.
+model TokenFollow {
+  id        String   @id @default(cuid())
+  traderId  String
+  trader    Trader   @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  coinId    String
+  coin      Coin     @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([traderId, coinId])
+  @@index([coinId])
+  @@index([traderId, createdAt])
+}
+
+/// An inbox row.
+///
+/// Three kinds, all of which the user asked to be told about:
+///
+///   FOLLOW     — someone started following you.
+///   UPLOAD     — someone you follow posted a clip.
+///   TOKEN_CLIP — a new clip landed on a coin you follow.
+///
+/// `actorId`/`clipId` are nullable and `onDelete: SetNull`/`Cascade` on purpose:
+/// deleting an actor must not erase the fact that you were notified, only the
+/// name attached to it. `coinMint` is stored as a plain string rather than a
+/// relation so a token follow notification survives even if the coin is later
+/// pruned from the catalogue.
+model Notification {
+  id       String  @id @default(cuid())
+  traderId String
+  trader   Trader  @relation("NotifTo", fields: [traderId], references: [id], onDelete: Cascade)
+
+  /// FOLLOW | UPLOAD | TOKEN_CLIP
+  type     String
+  actorId  String?
+  actor    Trader? @relation("NotifFrom", fields: [actorId], references: [id], onDelete: SetNull)
+
+  clipId   String?
+  clip     Clip?   @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  coinMint String?
+
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([traderId, createdAt])
+  @@index([traderId, read])
 }

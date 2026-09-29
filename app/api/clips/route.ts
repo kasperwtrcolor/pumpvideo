@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { fetchCoin, toCoinRecord } from "@/lib/pumpfun";
+import { notifyClipPublished, publicAuthor } from "@/lib/social";
 import {
   MAX_UPLOAD_BYTES,
   downloadTokenFor,
@@ -151,13 +152,33 @@ export async function POST(req: NextRequest) {
       thumbUrl: null,
       ready: true,
       caption: parsed.caption ?? null,
-      author: trader.displayName || trader.handle.replace(/^anon-/, "").slice(0, 8),
+      author: publicAuthor(trader),
       // No wallet means no creator payout — the 1% falls through to the treasury
       // rather than being silently dropped.
       creatorWallet: trader.walletAddress,
       uploadedById: trader.id,
     },
   });
+
+  // Tell the people who asked to be told: the uploader's followers, and anyone
+  // following this coin. Awaited rather than fired-and-forgotten because a
+  // serverless invocation can be frozen the moment the response is returned,
+  // which would silently drop the notifications.
+  //
+  // A failure here must not fail the upload — the clip exists and is live, and
+  // reporting an error would push the user to upload it a second time. So it is
+  // caught and reported in the payload instead of thrown.
+  let notified = { uploads: 0, tokens: 0 };
+  try {
+    notified = await notifyClipPublished({
+      id: clip.id,
+      coinId: coin.id,
+      coinMint: coin.mint,
+      uploadedById: trader.id,
+    });
+  } catch {
+    /* the clip published; the courtesy notification did not */
+  }
 
   return NextResponse.json({
     ok: true,
@@ -170,5 +191,6 @@ export async function POST(req: NextRequest) {
       sizeBytes: bytes,
     },
     coin: { mint: coin.mint, symbol: coin.symbol },
+    notified,
   });
 }

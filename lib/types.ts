@@ -8,13 +8,20 @@ export type CoinDTO = {
   priceSol: number;
   marketCapSol: number;
   change24hPct: number;
+  /** Net price move over the trailing ~5 minutes, in percent (signed). */
+  change5mPct: number;
+  /** Unsigned recent volatility, what the Hot rail ranks on. */
+  volatility5m: number;
   holders: number;
   volume24hSol: number;
   complete: boolean;
   twitter: string | null;
   telegram: string | null;
   website: string | null;
+  /** pump.fun launch time, when the source gave us one. */
   launchedAt: string | null;
+  /** When the coin entered our catalogue — the age fallback when `launchedAt` is null. */
+  createdAt: string;
   virtualSol: string;
   virtualToken: string;
   totalSupply: string;
@@ -31,6 +38,8 @@ export type ClipDTO = {
   thumbUrl: string | null;
   caption: string | null;
   author: string | null;
+  /** The uploading trader, for tapping through to their profile. Null when seeded. */
+  creatorId?: string | null;
   /** Wallet that earns the 1% creator fee on buys through this clip. */
   creatorWallet: string | null;
   likes: number;
@@ -68,6 +77,61 @@ export type QuoteDTO = {
 };
 
 export type QuotesResponse = { quotes: Record<string, QuoteDTO> };
+
+/**
+ * A public account as every social surface renders it: search results, follower
+ * lists, profile headers. `slug` is what goes in a profile URL — a username when
+ * one is claimed, the row id otherwise. It is never `handle`, which is the
+ * session cookie value and must not be published.
+ */
+export type UserCardDTO = {
+  id: string;
+  slug: string;
+  name: string;
+  username: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  followers: number;
+  following: number;
+  isFollowing: boolean;
+  isMe: boolean;
+};
+
+/** A token hit from search. */
+export type TokenHitDTO = {
+  mint: string;
+  symbol: string;
+  name: string;
+  imageUrl: string | null;
+  priceSol: number;
+  marketCapSol: number;
+  change24hPct: number;
+  complete: boolean;
+  isFollowing: boolean;
+};
+
+export type SearchResponse = { users: UserCardDTO[]; tokens: TokenHitDTO[] };
+
+export type ProfileResponse = { user: UserCardDTO; clips: FeedItemDTO[]; total: number };
+
+/**
+ * One inbox row. `actor` is null when the account that caused it has since been
+ * deleted — the notification survives, the name attached to it does not.
+ */
+export type NotificationDTO = {
+  id: string;
+  type: "FOLLOW" | "UPLOAD" | "TOKEN_CLIP";
+  read: boolean;
+  at: string;
+  actor: { slug: string; name: string; avatarUrl: string | null } | null;
+  coinSymbol: string | null;
+  coinImage: string | null;
+  clipId: string | null;
+  clipThumb: string | null;
+  coinMint: string | null;
+};
+
+export type NotificationsResponse = { unread: number; notifications: NotificationDTO[] };
 
 /** The caller's position in a coin, sized at the current price. */
 export type PositionLite = {

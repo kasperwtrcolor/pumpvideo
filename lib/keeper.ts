@@ -57,6 +57,65 @@ function wholeSupply(totalSupply: string): number {
   return Number.isFinite(n) && n > 0 ? n / 1e6 : 0;
 }
 
+/**
+ * Trailing window used to score volatility, in ms.
+ *
+ * Deliberately 10 minutes, not 5. The keeper samples every 5 minutes, so a
+ * strict 5-minute window can hold at most one step — and a coin that ran up and
+ * gave it back between two samples would score as if it never moved. Two steps
+ * is the shortest window in which a reversal is actually observable, which is
+ * the entire point of the Hot ranking ("gained *and* lost").
+ */
+const VOLATILITY_WINDOW_MS = 10 * 60_000;
+
+/** How far back samples are fetched — the volatility window plus one boundary. */
+const SAMPLE_LOOKBACK_MS = 15 * 60_000;
+
+type Sample = { price: number; at: Date };
+
+/**
+ * Volatility score: the sum of absolute step moves across the trailing window,
+ * in percent.
+ *
+ * A straight run of +10% scores 10. A round trip (+10%, then −10%) scores ≈20,
+ * because both legs are counted — which is what lifts the coins that gained and
+ * lost above the ones that merely drifted the same distance one way. The price
+ * just measured is appended as the final step, so the newest move always counts
+ * even before it has been written to PricePoint.
+ */
+function volatility(samples: Sample[], currentPrice: number): number {
+  const cutoff = Date.now() - VOLATILITY_WINDOW_MS;
+  const series = [
+    ...samples.filter((s) => s.at.getTime() >= cutoff).map((s) => s.price),
+    currentPrice,
+  ].filter((p) => Number.isFinite(p) && p > 0);
+
+  let sum = 0;
+  for (let i = 1; i < series.length; i++) {
+    const prev = series[i - 1];
+    if (prev > 0) sum += Math.abs((series[i] - prev) / prev) * 100;
+  }
+  return sum;
+}
+
+/**
+ * Net percent change from the sample nearest 5 minutes back, or 0 when no sample
+ * that old exists yet (a coin ingested less than 5 minutes ago).
+ *
+ * `samples` is ascending by time, so the loop leaves `base` holding the newest
+ * sample at or before the 5-minute mark — which, at a 5-minute cadence, is
+ * exactly the previous tick.
+ */
+function changeOver5m(samples: Sample[], currentPrice: number): number {
+  const target = Date.now() - 5 * 60_000;
+  let base: number | null = null;
+  for (const s of samples) {
+    if (s.at.getTime() <= target) base = s.price;
+  }
+  if (base === null || !(base > 0)) return 0;
+  return ((currentPrice - base) / base) * 100;
+}
+
 export async function runKeeper(opts: {
   mints?: string[];
   limit: number;
@@ -106,6 +165,27 @@ export async function runKeeper(opts: {
   };
   if (coins.length === 0) return empty;
 
+  // Recent price samples, fetched once for the whole catalog. Scoring volatility
+  // per coin would be one query per coin per tick (hundreds of round trips);
+  // this is a single indexed range read, grouped in memory below. It is read
+  // *before* the update loop, so it holds the state up to the previous tick —
+  // exactly the history the step calculation needs, with this tick's price
+  // appended in `volatility()` rather than already present twice.
+  const recentPoints = await prisma.pricePoint.findMany({
+    where: {
+      coinId: { in: coins.map((c) => c.id) },
+      at: { gte: new Date(Date.now() - SAMPLE_LOOKBACK_MS) },
+    },
+    orderBy: { at: "asc" },
+    select: { coinId: true, priceSol: true, at: true },
+  });
+  const historyByCoin = new Map<string, Sample[]>();
+  for (const p of recentPoints) {
+    const arr = historyByCoin.get(p.coinId) ?? [];
+    arr.push({ price: p.priceSol, at: p.at });
+    historyByCoin.set(p.coinId, arr);
+  }
+
   const graduated = coins.filter((c) => c.complete);
   const onCurve = coins.filter((c) => !c.complete);
 
@@ -132,6 +212,14 @@ export async function runKeeper(opts: {
     try {
       const supply = wholeSupply(coin.totalSupply);
       const marketCapSol = supply > 0 ? q.priceSol * supply : coin.marketCapSol;
+      const history = historyByCoin.get(coin.id) ?? [];
+
+      // Graduated coins get Dexscreener's native 5-minute number, which is
+      // computed against a finer tick history than our own sampling. Our own
+      // sample delta is the fallback for the rare pair Dexscreener returns
+      // without an `m5` (0 is ambiguous, so treat it as "unmeasured").
+      const change5mPct =
+        q.change5mPct !== 0 ? q.change5mPct : changeOver5m(history, q.priceSol);
 
       await prisma.coin.update({
         where: { id: coin.id },
@@ -139,6 +227,12 @@ export async function runKeeper(opts: {
           priceSol: q.priceSol,
           marketCapSol,
           change24hPct: q.change24hPct,
+          change5mPct,
+          // Never below the plain 5-minute move: when our own samples are too
+          // sparse or too fresh to show a step (a coin the keeper first saw
+          // minutes ago), Dexscreener's m5 still tells us it moved this much.
+          // The step sum wins when it is larger, i.e. when the price reversed.
+          volatility5m: Math.max(volatility(history, q.priceSol), Math.abs(change5mPct)),
           volume24hSol: usd > 0 ? q.volume24hUsd / usd : coin.volume24hSol,
           lastSyncedAt: new Date(),
         },
@@ -185,11 +279,19 @@ export async function runKeeper(opts: {
             ? ((mapped.priceSol - baseline.priceSol) / baseline.priceSol) * 100
             : coin.change24hPct;
 
+        // On-curve coins have no Dexscreener pair, so both numbers come from our
+        // own samples — which at a 5-minute cadence is precisely the 5-minute
+        // change.
+        const history = historyByCoin.get(coin.id) ?? [];
+        const change5mPct = changeOver5m(history, mapped.priceSol);
+
         await prisma.coin.update({
           where: { id: coin.id },
           data: {
             ...mapped,
             change24hPct,
+            change5mPct,
+            volatility5m: Math.max(volatility(history, mapped.priceSol), Math.abs(change5mPct)),
             isBanned: Boolean(record.is_banned),
             lastSyncedAt: new Date(),
           },

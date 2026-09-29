@@ -10,6 +10,8 @@ export type TraderRecord = {
   handle: string;
   walletAddress: string | null;
   displayName: string | null;
+  username: string | null;
+  bio: string | null;
   avatarUrl: string | null;
   privyDid: string | null;
   email: string | null;

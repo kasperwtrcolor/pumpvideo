@@ -7,16 +7,19 @@ import { BuySheet } from "@/components/BuySheet";
 import type { CoinDTO, ClipDTO } from "@/lib/types";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { TokenFollowButton } from "@/components/FollowButton";
 
 type Detail = {
   coin: CoinDTO;
+  /** Whether the viewer follows this token. */
+  following?: boolean;
   clips: ClipDTO[];
   trades: {
     side: string;
     symbol: string;
     solAmount: number;
     priceSol: number;
-    handle: string;
+    who: string;
     at: string;
   }[];
   position: {
@@ -113,7 +116,7 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-lg font-black">{coin.name}</h1>
               <p className="text-xs text-muted">
-                ${sym(coin.symbol)} · launched {timeAgo(coin.launchedAt)} ago
+                ${sym(coin.symbol)} · launched {timeAgo(coin.launchedAt ?? coin.createdAt)} ago
               </p>
             </div>
             {coin.complete && (
@@ -123,18 +126,34 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
             )}
           </div>
 
+          {/* Following a token puts every clip bound to it — whoever uploaded
+              them — on the viewer's Following wall, and notifies them when a new
+              one lands. That is different from saving one clip. */}
+          <div className="mt-3">
+            <TokenFollowButton mint={coin.mint} initialFollowing={Boolean(d.following)} size="md" />
+          </div>
+
           <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
             <div className="text-3xl font-black tabular-nums">
               {fmtPrice(coin.priceSol)}
               <span className="ml-1.5 text-sm font-bold text-muted">SOL</span>
             </div>
-            <div className="mt-0.5 flex items-center gap-2 text-xs">
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
               <span
                 className={`rounded px-1.5 py-0.5 font-bold tabular-nums ${
                   up ? "bg-up/20 text-up" : "bg-down/20 text-down"
                 }`}
               >
-                {fmtPct(coin.change24hPct)}
+                24h {fmtPct(coin.change24hPct)}
+              </span>
+              {/* The trailing 5-minute move — the same number the Hot rail ranks
+                  on. Shown so the ranking is legible, not a black box. */}
+              <span
+                className={`rounded px-1.5 py-0.5 font-bold tabular-nums ${
+                  coin.change5mPct >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"
+                }`}
+              >
+                5m {fmtPct(coin.change5mPct)}
               </span>
               <span className="text-muted tabular-nums">
                 MC {fmtSol(coin.marketCapSol)} SOL · {fmtUsd(coin.marketCapSol * solUsd)}
@@ -253,7 +272,7 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
                 >
                   {t.side}
                 </span>
-                <span className="text-muted">@{t.handle}</span>
+                <span className="text-muted">@{t.who}</span>
                 <span className="tabular-nums">{fmtSol(t.solAmount)} SOL</span>
                 <span className="ml-auto text-[10px] text-muted">{timeAgo(t.at)} ago</span>
               </div>

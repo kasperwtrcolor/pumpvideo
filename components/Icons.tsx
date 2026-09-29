@@ -149,6 +149,49 @@ export function CheckIcon({ className }: IconProps) {
   );
 }
 
+/** Search. A magnifier — the one glyph nobody has to be taught. */
+export function SearchIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={2} aria-hidden>
+      <circle cx="10.8" cy="10.8" r="6.3" />
+      <path d="M15.6 15.6 20.5 20.5" />
+    </svg>
+  );
+}
+
+/** The notification bell. */
+export function BellIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={1.9} aria-hidden>
+      <path d="M12 3.4a5.6 5.6 0 0 0-5.6 5.6c0 4.2-1.7 5.9-1.7 5.9h14.6s-1.7-1.7-1.7-5.9A5.6 5.6 0 0 0 12 3.4Z" />
+      <path d="M10.2 18.6a1.95 1.95 0 0 0 3.6 0" />
+    </svg>
+  );
+}
+
+/** A person plus a sign — the "follow" affordance. */
+export function UserPlusIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={2} aria-hidden>
+      <circle cx="10" cy="8" r="3.9" />
+      <path d="M3.4 19.6c.7-2.9 3.4-4.7 6.6-4.7 1.2 0 2.4.27 3.4.77" />
+      <path d="M17.6 13.4v5.2" />
+      <path d="M15 16h5.2" />
+    </svg>
+  );
+}
+
+/** A person plus a tick — the "following" state. */
+export function UserCheckIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={2} aria-hidden>
+      <circle cx="10" cy="8" r="3.9" />
+      <path d="M3.4 19.6c.7-2.9 3.4-4.7 6.6-4.7 1.2 0 2.4.27 3.4.77" />
+      <path d="M15 16.1l1.9 1.9 3.6-3.9" />
+    </svg>
+  );
+}
+
 /** A link that leaves the app. Always paired with a visible label. */
 export function ExternalIcon({ className }: IconProps) {
   return (

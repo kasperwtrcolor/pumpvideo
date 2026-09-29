@@ -61,11 +61,22 @@ export async function withTrader<T>(
   return res;
 }
 
+/**
+ * The trader shape handed to the browser.
+ *
+ * Deliberately omits `handle`. The handle *is* the session cookie value, and
+ * the cookie is httpOnly precisely so script cannot read it — echoing it in a
+ * JSON payload handed that guarantee straight back. Nothing in the client ever
+ * needed it; identity for display comes from `username`/`displayName`, and the
+ * server resolves the session from the cookie on every request.
+ */
 export function publicTrader(t: {
   id: string;
   handle: string;
   walletAddress: string | null;
   displayName: string | null;
+  username?: string | null;
+  bio?: string | null;
   avatarUrl: string | null;
   privyDid: string | null;
   email: string | null;
@@ -73,9 +84,10 @@ export function publicTrader(t: {
 }) {
   return {
     id: t.id,
-    handle: t.handle,
     walletAddress: t.walletAddress,
     displayName: t.displayName,
+    username: t.username ?? null,
+    bio: t.bio ?? null,
     avatarUrl: t.avatarUrl,
     email: t.email,
     loginMethod: t.loginMethod,
@@ -95,6 +107,8 @@ export function serializeCoin(c: {
   priceSol: number;
   marketCapSol: number;
   change24hPct: number;
+  change5mPct: number;
+  volatility5m: number;
   holders: number;
   volume24hSol: number;
   complete: boolean;
@@ -102,6 +116,7 @@ export function serializeCoin(c: {
   telegram: string | null;
   website: string | null;
   launchedAt: Date | null;
+  createdAt: Date;
   virtualSol: string;
   virtualToken: string;
   totalSupply: string;
@@ -114,6 +129,8 @@ export function serializeCoin(c: {
     priceSol: c.priceSol,
     marketCapSol: c.marketCapSol,
     change24hPct: c.change24hPct,
+    change5mPct: c.change5mPct,
+    volatility5m: c.volatility5m,
     holders: c.holders,
     volume24hSol: c.volume24hSol,
     complete: c.complete,
@@ -121,6 +138,10 @@ export function serializeCoin(c: {
     telegram: c.telegram,
     website: c.website,
     launchedAt: c.launchedAt,
+    /// When this row entered our catalogue. The age shown in the UI falls back
+    /// to this when pump.fun gave us no `launchedAt`, so every coin can display
+    /// an age rather than a dash.
+    createdAt: c.createdAt,
     virtualSol: c.virtualSol,
     virtualToken: c.virtualToken,
     totalSupply: c.totalSupply,
@@ -137,6 +158,9 @@ export function serializeClip(c: {
   caption: string | null;
   author: string | null;
   creatorWallet?: string | null;
+  /// The uploading trader, so a viewer can tap through to their profile and
+  /// follow them. Null for seeded clips, which have no creator account.
+  uploadedById?: string | null;
   likes: number;
   shares: number;
   comments: number;
@@ -149,6 +173,7 @@ export function serializeClip(c: {
     thumbUrl: c.thumbUrl,
     caption: c.caption,
     author: c.author,
+    creatorId: c.uploadedById ?? null,
     creatorWallet: c.creatorWallet ?? null,
     likes: c.likes,
     shares: c.shares,

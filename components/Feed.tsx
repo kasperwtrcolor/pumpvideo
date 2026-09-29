@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import Link from "next/link";
 import type { AccountResponse, FeedItemDTO, FeedResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
 import { CommentSheet } from "./CommentSheet";
-import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym } from "@/lib/format";
+import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
@@ -15,11 +16,28 @@ import { CommentIcon, HeartIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } 
 import { LiveDot, Sparkline } from "./PriceTicker";
 
 type Sort = "hot" | "new" | "top";
+type Scope = "all" | "following";
 
-const SORTS: { key: Sort; label: string }[] = [
-  { key: "hot", label: "Hot" },
-  { key: "new", label: "New" },
-  { key: "top", label: "Top" },
+const SORTS: { key: Sort; label: string; hint: string }[] = [
+  // The hint is what the rail *means*, since a one-word label can't carry it.
+  // Hot is not "popular" — it is the coins that moved most in the last five
+  // minutes, up or down. Top is not "best" — it is a market-cap floor.
+  { key: "hot", label: "Hot", hint: "biggest 5-minute moves, up or down" },
+  { key: "new", label: "New", hint: "freshest clips" },
+  { key: "top", label: "Top", hint: "market cap $100k and above" },
+];
+
+/**
+ * The two walls.
+ *
+ * "For You" is the global ranked feed; "Following" is only the viewer's social
+ * graph — clips by people they follow, and every clip on a coin they follow.
+ * This is the arrangement every clip feed uses, and it is a switch rather than
+ * a filter buried in a menu because it is the thing people flip most.
+ */
+const SCOPES: { key: Scope; label: string }[] = [
+  { key: "all", label: "For You" },
+  { key: "following", label: "Following" },
 ];
 
 /** How many clips a signed-out visitor can watch before we invite them in. */
@@ -72,6 +90,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   /** Bumped per reshuffle so the icon's spin replays. */
   const [shuffleSpin, setShuffleSpin] = useState(0);
+
+  /** Which wall: everyone, or just the people and coins this viewer follows. */
+  const [scope, setScope] = useState<Scope>("all");
   // Login nudge. `watched` counts distinct clips actually played this session.
   const [watched, setWatched] = useState(0);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
@@ -129,11 +150,18 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   }, []);
 
   const load = useCallback(
-    async (nextSort: Sort, nextOffset: number, nextSeed: string, nextSince: string, replace: boolean) => {
+    async (
+      nextSort: Sort,
+      nextOffset: number,
+      nextSeed: string,
+      nextSince: string,
+      nextScope: Scope,
+      replace: boolean,
+    ) => {
       setLoading(true);
       try {
         const r = await fetch(
-          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}&seed=${encodeURIComponent(nextSeed)}&since=${encodeURIComponent(nextSince)}`,
+          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}&seed=${encodeURIComponent(nextSeed)}&since=${encodeURIComponent(nextSince)}&scope=${nextScope}`,
           { cache: "no-store" },
         );
         const j = (await r.json()) as FeedResponse;
@@ -169,16 +197,18 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     [initialSolUsd, toast],
   );
 
-  // (Re)load from the top whenever the sort or the seed changes. A new seed is
-  // a fresh permutation, so the list has to be rebuilt rather than appended to.
+  // (Re)load from the top whenever the sort, the seed or the scope changes. A
+  // new seed is a fresh permutation and a new scope is a different wall, so in
+  // both cases the list has to be rebuilt rather than appended to.
   useEffect(() => {
     if (!seed || !since) return;
     setItems([]);
     setOffset(0);
     setHasMore(true);
     setActive(0);
-    void load(sort, 0, seed, since, true);
-  }, [sort, seed, since, load]);
+    scroller.current?.scrollTo({ top: 0 });
+    void load(sort, 0, seed, since, scope, true);
+  }, [sort, seed, since, scope, load]);
 
   /** Reshuffle: mint a new seed and start the wall again. */
   const reshuffle = useCallback(() => {
@@ -238,9 +268,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   // Prefetch the next page a screen before the end.
   useEffect(() => {
     if (seed && since && hasMore && !loading && items.length > 0 && active >= items.length - 3) {
-      void load(sort, offset, seed, since, false);
+      void load(sort, offset, seed, since, scope, false);
     }
-  }, [active, hasMore, loading, items.length, offset, sort, seed, since, load]);
+  }, [active, hasMore, loading, items.length, offset, sort, seed, since, scope, load]);
 
   // Keep the "latest value" refs current so the poll timer below can read them.
   useEffect(() => {
@@ -474,12 +504,28 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     <div className="relative h-full">
       {/* sort rail — sits below the transparent header overlay, which the feed
           renders underneath so the video runs to the top edge of the screen. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-[calc(env(safe-area-inset-top)+3.25rem)]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col items-center gap-2 pt-[calc(env(safe-area-inset-top)+3.25rem)]">
+        {/* Which wall. Centred at the top, the way every clip feed does it. */}
+        <div className="pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur">
+          {SCOPES.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => setScope(s.key)}
+              className={`rounded-full px-3.5 py-1 text-[12px] font-black transition ${
+                scope === s.key ? "bg-ink text-black" : "text-white/70 hover:text-white"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
         <div className="pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur">
           {SORTS.map((s) => (
             <button
               key={s.key}
               onClick={() => setSort(s.key)}
+              title={s.hint}
               className={`rounded-full px-3 py-1 text-[11px] font-bold transition ${
                 sort === s.key ? "bg-ink text-black" : "text-white/70 hover:text-white"
               }`}
@@ -533,10 +579,43 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
         {items.length === 0 && seed !== null && !loading && (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-            <p className="text-lg font-bold">Nothing on the wall yet.</p>
-            <p className="text-xs text-muted">
-              Upload a clip and bind it to a token to get the feed started.
-            </p>
+            {scope === "following" ? (
+              authEnabled && !authenticated ? (
+                <>
+                  <p className="text-lg font-bold">Your following feed</p>
+                  <p className="text-xs text-muted">
+                    Log in to follow people and tokens, and their clips show up here.
+                  </p>
+                  <button
+                    onClick={login}
+                    className="press rounded-xl burn-gradient px-5 py-2.5 text-[12px] font-black text-black"
+                  >
+                    Log in
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-bold">Nothing here yet.</p>
+                  <p className="text-xs text-muted">
+                    You are not following anyone. Follow a creator or a token and their clips
+                    land on this wall.
+                  </p>
+                  <Link
+                    href="/search"
+                    className="press rounded-xl burn-gradient px-5 py-2.5 text-[12px] font-black text-black"
+                  >
+                    Find people and tokens
+                  </Link>
+                </>
+              )
+            ) : (
+              <>
+                <p className="text-lg font-bold">Nothing on the wall yet.</p>
+                <p className="text-xs text-muted">
+                  Upload a clip and bind it to a token to get the feed started.
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -696,6 +775,14 @@ function ClipPanel({
   const marketCap = quote?.marketCapSol ?? coin.marketCapSol;
   const change = quote?.change24hPct ?? coin.change24hPct;
 
+  // Token age. pump.fun tells us when a coin launched; when it doesn't, the
+  // moment it entered our catalogue is the honest fallback — it is still "how
+  // long this token has been around" from the viewer's side of the screen.
+  const age = timeAgo(coin.launchedAt ?? coin.createdAt);
+  // The 5-minute move, the same number the Hot rail ranks on. Signed, so a dump
+  // reads as clearly as a pump.
+  const change5m = coin.change5mPct ?? 0;
+
   // The trader's own position, if any. When they hold, the price is coloured
   // against *their entry* — above it green, below it red — instead of the
   // generic 24h move. That is the number they actually care about.
@@ -779,8 +866,12 @@ function ClipPanel({
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/55" />
 
-      {/* right rail */}
-      <div className="absolute bottom-36 right-3 z-30 flex flex-col items-center gap-4">
+      {/* right rail.
+          Bottom-anchored and compact on purpose: with five actions plus the
+          header icons above it, the column has to clear the header on a short
+          viewport (a landscape phone, or a small window). Sizes and gaps are
+          kept tight so the top of the rail stays below the chrome. */}
+      <div className="absolute bottom-28 right-3 z-30 flex flex-col items-center gap-3">
         <RailButton
           label={sym(coin.symbol).slice(0, 5)}
           sub="coin"
@@ -836,7 +927,16 @@ function ClipPanel({
       {/* bottom info */}
       <div className="absolute inset-x-0 bottom-0 z-30 space-y-3 p-4 pr-20">
         <div className="flex items-center gap-2 text-xs text-white/90 text-glow">
-          <span className="font-bold">@{item.author ?? "unclaimed"}</span>
+          {item.creatorId ? (
+            <Link
+              href={`/u/${encodeURIComponent(item.creatorId)}`}
+              className="press font-bold underline decoration-white/30 underline-offset-2"
+            >
+              @{item.author ?? "creator"}
+            </Link>
+          ) : (
+            <span className="font-bold">@{item.author ?? "unclaimed"}</span>
+          )}
           {item.source === "UPLOAD" && (
             <span className="rounded bg-accent/25 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-accent">
               CREATOR
@@ -889,10 +989,28 @@ function ClipPanel({
               change >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"
             }`}
           >
-            {fmtPct(change)}
+            24h {fmtPct(change)}
           </span>
+          {/* The 5-minute move — the number the Hot rail is ranked on, so a
+              viewer can see *why* a clip surfaced as hot. Hidden at a flat zero
+              (a coin the keeper has not measured yet) rather than printing a
+              meaningless "0.0%". */}
+          {change5m !== 0 && (
+            <span
+              className={`rounded-md px-2 py-1 text-[11px] font-bold tabular-nums ${
+                change5m >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"
+              }`}
+            >
+              5m {fmtPct(change5m)}
+            </span>
+          )}
           <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-semibold text-white/85 tabular-nums">
             MC {fmtSol(marketCap)} SOL · {fmtUsd(marketCap * solUsd)}
+          </span>
+          {/* How old the token is — launch time when pump.fun gave us one, else
+              the moment it entered the catalogue. */}
+          <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-semibold text-white/85 tabular-nums">
+            {age} old
           </span>
           <span
             className={`rounded-md px-2 py-1 text-[11px] font-bold tabular-nums ${flash} ${
@@ -1006,7 +1124,7 @@ function useOnTrue(flag: boolean): number {
  */
 function LikeGlyph({ liked, burst }: { liked: boolean; burst: number }) {
   return (
-    <span className="relative inline-flex h-8 w-8 items-center justify-center">
+    <span className="relative inline-flex h-7 w-7 items-center justify-center">
       {liked && burst > 0 && (
         <>
           <span
@@ -1027,7 +1145,7 @@ function LikeGlyph({ liked, burst }: { liked: boolean; burst: number }) {
       <HeartIcon
         key={`h-${burst}`}
         filled={liked}
-        className={`relative h-8 w-8 ${liked ? "heart-pop text-down" : "text-white"}`}
+        className={`relative h-7 w-7 ${liked ? "heart-pop text-down" : "text-white"}`}
       />
     </span>
   );

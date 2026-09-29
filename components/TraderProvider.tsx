@@ -11,9 +11,11 @@ import {
 
 export type Trader = {
   id: string;
-  handle: string;
   walletAddress: string | null;
   displayName: string | null;
+  /** Claimed public handle, if any. Never the session handle. */
+  username: string | null;
+  bio: string | null;
   avatarUrl: string | null;
   email: string | null;
   loginMethod: string | null;

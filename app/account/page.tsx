@@ -4,6 +4,7 @@ import Link from "next/link";
 import { privyEnabled } from "@/components/PrivyRoot";
 import { useAuth } from "@/components/AuthBridge";
 import { AccountPanel } from "@/components/AccountPanel";
+import { ProfileSettings } from "@/components/ProfileSettings";
 import { PositionsSection } from "@/components/PositionsSection";
 import { LEGAL_LINKS } from "@/lib/legal";
 
@@ -71,6 +72,10 @@ function AccountInner() {
 
       <div className="mt-4">
         <AccountPanel />
+      </div>
+
+      <div className="mt-4">
+        <ProfileSettings />
       </div>
 
       <PositionsSection />

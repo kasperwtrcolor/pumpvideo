@@ -24,7 +24,7 @@ export type DexPair = {
   fdv?: number;
   liquidity?: { usd?: number };
   volume?: { h24?: number };
-  priceChange?: { h24?: number };
+  priceChange?: { m5?: number; h1?: number; h6?: number; h24?: number };
   baseToken?: { address?: string; symbol?: string };
   quoteToken?: { address?: string; symbol?: string };
 };
@@ -38,6 +38,13 @@ export type DexQuote = {
   liquidityUsd: number;
   volume24hUsd: number;
   change24hPct: number;
+  /**
+   * Net price move over the trailing 5 minutes, in percent. Dexscreener
+   * computes this against its own tick history, which is finer-grained than the
+   * keeper's 5-minute sampling, so it is the best 5-minute number available for
+   * a graduated coin. Can be negative.
+   */
+  change5mPct: number;
   dexId: string;
 };
 
@@ -102,6 +109,7 @@ export async function fetchDexQuotes(
         liquidityUsd: p.liquidity?.usd ?? 0,
         volume24hUsd: p.volume?.h24 ?? 0,
         change24hPct: p.priceChange?.h24 ?? 0,
+        change5mPct: p.priceChange?.m5 ?? 0,
         dexId: p.dexId,
       });
     }

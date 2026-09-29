@@ -38,6 +38,8 @@ async function main() {
     "/account",
     "/portfolio",
     "/favorites",
+    "/search",
+    "/notifications",
     "/legal/terms",
     "/legal/privacy",
   ]) {
@@ -151,7 +153,14 @@ async function main() {
   const feed = (await feedRes.json()) as {
     items: {
       id: string;
-      coin: { mint: string; symbol: string };
+      coin: {
+        mint: string;
+        symbol: string;
+        launchedAt: string | null;
+        createdAt: string | null;
+        volatility5m?: number;
+        marketCapSol: number;
+      };
       videoUrl: string | null;
       thumbUrl: string | null;
       position: unknown;
@@ -192,6 +201,62 @@ async function main() {
     "feed serialises a position field on every item",
     feed.items.every((it) => "position" in it),
     feed.items.map((it) => (it.position ? "held" : "none")).join(","),
+  );
+
+  // Token age rides on `createdAt` (with `launchedAt` preferred when pump.fun
+  // supplied it). If it were missing the age chip would render "— old", so this
+  // is the check that keeps the age honest.
+  console.log("\ntoken age + hot/top ranking");
+  check(
+    "every feed coin carries an age (createdAt, or launchedAt)",
+    feed.items.every((it) => Boolean(it.coin.launchedAt || it.coin.createdAt)),
+    feed.items.map((it) => it.coin.launchedAt ?? it.coin.createdAt ?? "MISSING").slice(0, 1).join(""),
+  );
+
+  // Hot is the top movers by 5-minute volatility. Its gate excludes coins the
+  // keeper has not measured, so every item carries a positive score — unless the
+  // gate matched nothing and the feed fell back, in which case they are all
+  // unmeasured. A *mix* is the shape a broken filter would produce, so the test
+  // allows "all measured" or "none measured" and fails on anything between.
+  const hotRes = await fetch(`${BASE}/api/feed?sort=hot&limit=8`);
+  const hot = (await hotRes.json()) as {
+    items: { coin: { volatility5m?: number } }[];
+    total: number;
+  };
+  check("hot feed returns items", hot.items.length > 0, `${hot.total} clips`);
+  const hotVols = hot.items.map((it) => it.coin.volatility5m ?? 0);
+  check(
+    "hot feed is ordered by volatility (descending)",
+    hotVols.every((v, i) => i === 0 || hotVols[i - 1] >= v),
+    hotVols.map((v) => v.toFixed(2)).join(" ≥ "),
+  );
+  const hotMeasured = hotVols.filter((v) => v > 0).length;
+  check(
+    "hot feed is all-movers or fully ungated — never a mix",
+    hotMeasured === 0 || hotMeasured === hotVols.length,
+    `${hotMeasured}/${hotVols.length} carried a movement score`,
+  );
+
+  const topRes = await fetch(`${BASE}/api/feed?sort=top&limit=8`);
+  const topFeed = (await topRes.json()) as {
+    items: { coin: { marketCapSol: number } }[];
+    total: number;
+    solUsd: number;
+  };
+  check("top feed returns items", topFeed.items.length > 0, `${topFeed.total} clips`);
+  const topCaps = topFeed.items.map((it) => it.coin.marketCapSol);
+  check(
+    "top feed is ordered by market cap (descending)",
+    topCaps.every((v, i) => i === 0 || topCaps[i - 1] >= v),
+    topCaps.map((v) => Math.round(v)).join(" ≥ "),
+  );
+  // $100k floor, evaluated in USD because market caps are stored in SOL. A small
+  // tolerance absorbs the SOL/USD cache changing between the two requests.
+  const topUsd = topFeed.solUsd || 1;
+  check(
+    "every top-feed coin is at $100k market cap or above",
+    topCaps.every((mc) => mc * topUsd >= 99_000),
+    topCaps.map((mc) => `$${Math.round((mc * topUsd) / 1000)}k`).join(", "),
   );
 
   console.log("\nlive quotes");
@@ -440,6 +505,123 @@ async function main() {
 
   const balBad = await fetch(`${BASE}/api/wallet/balance?address=not-a-key`);
   check("balance rejects a bad pubkey", balBad.status === 400, `${balBad.status}`);
+
+  console.log("\nsocial graph");
+
+  // Everything that changes the graph requires a verified identity. A cookie
+  // alone would let a script inflate follower counts and spam inboxes.
+  for (const [label, path, body] of [
+    ["follow", "/api/follow", { traderId: "someone" }],
+    ["token follow", "/api/token-follow", { mint: "So11111111111111111111111111111111111111112" }],
+    ["mark notifications", "/api/notifications", { all: true }],
+  ] as const) {
+    const r = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    check(`${label} without a session is rejected`, r.status === 401, `${r.status}`);
+  }
+
+  const notes = await fetch(`${BASE}/api/notifications`);
+  check("the inbox requires a session", notes.status === 401, `${notes.status}`);
+
+  const acctPatch = await fetch(`${BASE}/api/account`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "smoketest" }),
+  });
+  check("claiming a handle requires a session", acctPatch.status === 401, `${acctPatch.status}`);
+
+  // The session handle IS the cookie value. It must never come back in a JSON
+  // payload, or the httpOnly flag on the cookie stops meaning anything.
+  const acct = await fetch(`${BASE}/api/account`);
+  const acctBody = (await acct.json()) as { trader?: Record<string, unknown> };
+  check(
+    "the account payload does not leak the session handle",
+    Boolean(acctBody.trader) && !("handle" in (acctBody.trader ?? {})),
+    Object.keys(acctBody.trader ?? {}).join(","),
+  );
+
+  const searchShape = await fetch(`${BASE}/api/search?q=sol`);
+  const searchBody = (await searchShape.json()) as {
+    users?: unknown[];
+    tokens?: { symbol?: string }[];
+  };
+  check(
+    "search returns both people and tokens",
+    searchShape.ok && Array.isArray(searchBody.users) && Array.isArray(searchBody.tokens),
+    `${searchBody.users?.length ?? 0} users / ${searchBody.tokens?.length ?? 0} tokens`,
+  );
+
+  // A known token must actually be findable by symbol — the search is only
+  // useful if an obviously-correct query returns the thing.
+  const knownSymbol = feed.items[0]?.coin.symbol ?? "";
+  const bySymbol = (await (
+    await fetch(`${BASE}/api/search?q=${encodeURIComponent(knownSymbol)}`)
+  ).json()) as { tokens?: { symbol?: string }[] };
+  check(
+    "search finds a token by its own symbol",
+    (bySymbol.tokens ?? []).some((t) => t.symbol === knownSymbol),
+    `looked for ${knownSymbol}`,
+  );
+
+  // Handles are 37 characters, so a username (max 20) can never be one. If a
+  // session handle ever resolved as a profile, a leaked cookie string would
+  // become a way to enumerate accounts.
+  const handleLookup = await fetch(`${BASE}/api/users/anon-${"a".repeat(32)}`);
+  check("a session handle does not resolve as a profile", handleLookup.status === 404, `${handleLookup.status}`);
+
+  const ghost = await fetch(`${BASE}/api/users/nobody-here-at-all`);
+  check("an unknown profile is a clean 404", ghost.status === 404, `${ghost.status}`);
+
+  const emptyQ = (await (await fetch(`${BASE}/api/search?q=`)).json()) as {
+    users?: unknown[];
+    tokens?: unknown[];
+  };
+  check(
+    "an empty query returns nothing rather than everything",
+    (emptyQ.users ?? []).length === 0 && (emptyQ.tokens ?? []).length === 0,
+  );
+
+  // `%` and `_` are LIKE wildcards, and Prisma's `contains` does not escape
+  // them — so before this was guarded, a search for "%" returned the entire
+  // catalogue. They must now match literally, i.e. return nothing.
+  const wild = await fetch(`${BASE}/api/search?q=${encodeURIComponent("%%%")}`);
+  const wildBody = (await wild.json()) as { users?: unknown[]; tokens?: unknown[] };
+  check(
+    "LIKE wildcards in a query are matched literally, not as wildcards",
+    wild.ok && (wildBody.tokens ?? []).length === 0 && (wildBody.users ?? []).length === 0,
+    `${wildBody.tokens?.length ?? "?"} tokens`,
+  );
+
+  // The Following wall must NOT silently fall back to the global feed. An
+  // anonymous viewer follows nobody, so an honest answer is an empty list — a
+  // populated one would mean the toggle is lying about what it shows.
+  const followingWall = await fetch(`${BASE}/api/feed?limit=5&scope=following&seed=x&since=${Date.now()}`);
+  const followingBody = (await followingWall.json()) as { items?: unknown[] };
+  check(
+    "the Following wall is empty for a viewer who follows nobody",
+    followingWall.ok && (followingBody.items ?? []).length === 0,
+    `${followingBody.items?.length ?? "?"} items`,
+  );
+
+  // The coin detail must report the public name, not the session handle.
+  const coinDetail = await fetch(`${BASE}/api/coins/${encodeURIComponent(knownSymbol)}`);
+  const coinBody = (await coinDetail.json()) as {
+    trades?: { who?: string; handle?: string }[];
+    following?: unknown;
+  };
+  check(
+    "coin detail exposes trade authors by public name, not handle",
+    coinDetail.ok && (coinBody.trades ?? []).every((t) => t.handle === undefined && "who" in t),
+    `${coinBody.trades?.length ?? 0} trades`,
+  );
+  check(
+    "coin detail reports the viewer's token-follow state",
+    typeof coinBody.following === "boolean",
+    String(coinBody.following),
+  );
 
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);

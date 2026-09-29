@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTrader } from "./TraderProvider";
+import { NotifyBell } from "./NotifyBell";
+import { SearchIcon } from "./Icons";
 import { LogoLockup } from "./Logo";
 import { fmtSol } from "@/lib/format";
 
@@ -82,6 +84,18 @@ export function AppHeader() {
             </span>
           </div>
         )}
+
+        <Link
+          href="/search"
+          aria-label="Search people and tokens"
+          className={`press flex h-8 w-8 items-center justify-center rounded-full border ${
+            overlay ? "border-white/25 bg-black/35 backdrop-blur" : "border-line bg-panel2"
+          }`}
+        >
+          <SearchIcon className="h-4 w-4" />
+        </Link>
+
+        <NotifyBell overlay={overlay} />
       </div>
     </header>
   );
