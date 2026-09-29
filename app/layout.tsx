@@ -5,7 +5,7 @@ import { TraderProvider } from "@/components/TraderProvider";
 import { solUsd } from "@/lib/sol-price";
 
 export const metadata: Metadata = {
-  title: "PUMPCLIP — every clip is a coin you can buy",
+  title: "PumpClip — every clip is a coin you can buy",
   description:
     "Swipe short clips. Every clip has its own coin you can buy — practice with play money first, no wallet needed.",
 };
