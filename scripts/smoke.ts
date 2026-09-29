@@ -64,6 +64,19 @@ async function main() {
     ),
   );
 
+  // The nav draws real SVG line icons, not emoji. Emoji render differently on
+  // every platform and cannot inherit `currentColor`, so the active-tab colour
+  // silently stops working — this guards against that regression coming back.
+  check(
+    "nav icons are inline SVG with currentColor strokes",
+    (home.match(/stroke="currentColor"/g) ?? []).length >= 5,
+    `${(home.match(/stroke="currentColor"/g) ?? []).length} stroked icons`,
+  );
+  check(
+    "no emoji glyphs in the server-rendered UI",
+    !/(❤️|🤍|💬|🔊|🔇)/u.test(home),
+  );
+
   // The account page is where wallet management, the live book and sign-out now
   // live; the old modal sheet and the /portfolio tab are gone. /portfolio is
   // kept only as a redirect, so a stale bookmark still lands somewhere useful.

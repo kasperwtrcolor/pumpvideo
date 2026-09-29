@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { AccountResponse, FeedItemDTO, FeedResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { useAuth } from "./AuthBridge";
@@ -11,7 +11,7 @@ import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym } from "@/li
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
-import { StarIcon } from "./Icons";
+import { CommentIcon, HeartIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
 
 type Sort = "hot" | "new" | "top";
@@ -69,6 +69,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
+
+  /** Bumped per reshuffle so the icon's spin replays. */
+  const [shuffleSpin, setShuffleSpin] = useState(0);
   // Login nudge. `watched` counts distinct clips actually played this session.
   const [watched, setWatched] = useState(0);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
@@ -191,6 +194,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     }
     setSeed(s);
     setSince(t);
+    // Replays the icon's spin, so the tap is acknowledged even when the new
+    // order happens to look similar.
+    setShuffleSpin((n) => n + 1);
     scroller.current?.scrollTo({ top: 0 });
   }, []);
 
@@ -485,16 +491,20 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             onClick={reshuffle}
             title="reshuffle the wall"
             aria-label="Reshuffle"
-            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-white/70 transition hover:text-white active:rotate-180"
+            className="flex items-center rounded-full px-2.5 py-1 text-white/70 transition hover:text-white"
           >
-            ⤮
+            <ShuffleIcon
+              key={`sh-${shuffleSpin}`}
+              className={`h-3.5 w-3.5 ${shuffleSpin > 0 ? "spin-once" : ""}`}
+            />
           </button>
           <button
             onClick={() => setMuted((m) => !m)}
             title="toggle sound"
-            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-white/70 hover:text-white"
+            aria-label={muted ? "Unmute" : "Mute"}
+            className="flex items-center rounded-full px-2.5 py-1 text-white/70 transition hover:text-white"
           >
-            {muted ? "🔇" : "🔊"}
+            <VolumeIcon muted={muted} className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -530,7 +540,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
           </div>
         )}
 
-        {loading && (
+        {items.length === 0 && loading && <ClipSkeleton />}
+
+        {items.length > 0 && loading && (
           <div className="flex h-24 items-center justify-center text-xs text-muted">loading…</div>
         )}
         {!hasMore && items.length > 0 && (
@@ -640,6 +652,44 @@ function ClipPanel({
   const { coin } = item;
   const vid = useRef<HTMLVideoElement>(null);
 
+  // The burst counters replay an acknowledgement animation exactly on the
+  // transition to the on-state — not when a clip arrives already liked/saved,
+  // which would animate on render rather than on the user's tap.
+  const burst = useOnTrue(liked);
+  const savePop = useOnTrue(favorited);
+
+  /**
+   * Double-tap to like.
+   *
+   * Every clip feed anyone has used behaves this way, so its absence reads as
+   * the app being unfinished. The big heart is local and purely decorative: it
+   * plays whether or not the like is accepted, so a signed-out double-tap still
+   * gets the acknowledgement and then the login toast explains why.
+   */
+  const [bigHeart, setBigHeart] = useState(0);
+  const lastTap = useRef(0);
+  const tapMedia = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      setBigHeart((n) => n + 1);
+      if (!liked) onLike();
+      return;
+    }
+    lastTap.current = now;
+  }, [liked, onLike]);
+
+  // Taps that land on a control are that control's business — the rail sits
+  // inside this section, so without the guard a "like" tap would also count as
+  // the first tap of a double-tap.
+  const onSectionClick = useCallback(
+    (e: React.MouseEvent) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      tapMedia();
+    },
+    [tapMedia],
+  );
+
   // Live values win over the ones the feed shipped with; until the first quote
   // lands, the shipped price is what is shown.
   const price = quote?.priceSol ?? coin.priceSol;
@@ -683,7 +733,8 @@ function ClipPanel({
     <section
       data-index={index}
       data-clip-id={item.id}
-      className="snap-item relative h-full w-full overflow-hidden bg-black"
+      onClick={onSectionClick}
+      className="snap-item clip-enter relative h-full w-full overflow-hidden bg-black"
     >
       {hasVideo ? (
         <>
@@ -739,26 +790,48 @@ function ClipPanel({
           ring
         />
         <RailButton
-          label={fmtCount(counts.likes)}
+          label={<RollingCount value={fmtCount(counts.likes)} />}
           sub="like"
-          icon={liked ? "❤️" : "🤍"}
           onClick={onLike}
           active={liked}
-        />
+        >
+          <LikeGlyph liked={liked} burst={burst} />
+        </RailButton>
         <RailButton
-          label={fmtCount(counts.comments)}
-          sub="chat"
-          icon="💬"
+          label={<RollingCount value={fmtCount(counts.comments)} />}
+          sub="comment"
           onClick={onComment}
-        />
-        <RailButton label={fmtCount(counts.shares)} sub="share" icon="↗" onClick={onShare} />
+        >
+          <CommentIcon className="h-8 w-8 text-white" />
+        </RailButton>
+        <RailButton
+          label={<RollingCount value={fmtCount(counts.shares)} />}
+          sub="share"
+          onClick={onShare}
+        >
+          <ShareIcon className="h-8 w-8 text-white" />
+        </RailButton>
         <RailButton label={favorited ? "saved" : "save"} sub="later" onClick={onFavorite}>
           <StarIcon
-            className={`h-7 w-7 ${favorited ? "text-accent" : "text-white"}`}
+            key={`s-${savePop}`}
+            className={`h-8 w-8 ${favorited ? "text-accent" : "text-white"} ${
+              favorited && savePop > 0 ? "star-pop" : ""
+            }`}
             filled={favorited}
           />
         </RailButton>
       </div>
+
+      {/* The double-tap heart. Keyed on its counter so each double-tap replays
+          it; purely decorative, so it is never allowed to block a tap. */}
+      {bigHeart > 0 && (
+        <span
+          key={`bh-${bigHeart}`}
+          className="big-heart pointer-events-none absolute inset-0 z-40 flex items-center justify-center"
+        >
+          <HeartIcon filled className="h-28 w-28 text-down drop-shadow-[0_6px_28px_rgba(0,0,0,0.65)]" />
+        </span>
+      )}
 
       {/* bottom info */}
       <div className="absolute inset-x-0 bottom-0 z-30 space-y-3 p-4 pr-20">
@@ -870,7 +943,7 @@ function RailButton({
   ring,
   children,
 }: {
-  label: string;
+  label: ReactNode;
   sub: string;
   icon?: string;
   art?: string | null;
@@ -883,14 +956,14 @@ function RailButton({
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-0.5 text-white transition active:scale-95"
+      className="press flex flex-col items-center gap-0.5 text-white"
     >
       {children ? (
         children
       ) : art ? (
         <CoinAvatar
           src={art}
-          symbol={symbol ?? label}
+          symbol={symbol ?? (typeof label === "string" ? label : "")}
           className={`h-11 w-11 rounded-full ${ring ? "" : "border border-white/40"}`}
           ring={ring}
         />
@@ -900,5 +973,114 @@ function RailButton({
       <span className="text-[10px] font-bold text-glow">{label}</span>
       <span className="text-[9px] uppercase tracking-wider text-white/50">{sub}</span>
     </button>
+  );
+}
+
+/** Eight evenly-spaced directions for the like burst. */
+const PARTICLES = [0, 45, 90, 135, 180, 225, 270, 315];
+
+/**
+ * A counter that ticks each time `flag` flips to true.
+ *
+ * Used as a React key so the acknowledgement animation replays on exactly the
+ * transition a user caused — and never on a re-render, a poll-driven refresh, or
+ * a clip arriving already in that state.
+ */
+function useOnTrue(flag: boolean): number {
+  const [n, setN] = useState(0);
+  const prev = useRef(flag);
+  useEffect(() => {
+    if (flag && !prev.current) setN((x) => x + 1);
+    prev.current = flag;
+  }, [flag]);
+  return n;
+}
+
+/**
+ * The like glyph and its burst.
+ *
+ * The burst is keyed on `burst` so it remounts — and so replays — exactly once
+ * per tap. It deliberately does *not* fire when a clip arrives already-liked:
+ * an animation that runs on render rather than on interaction is noise, and the
+ * whole point of motion here is to acknowledge the tap.
+ */
+function LikeGlyph({ liked, burst }: { liked: boolean; burst: number }) {
+  return (
+    <span className="relative inline-flex h-8 w-8 items-center justify-center">
+      {liked && burst > 0 && (
+        <>
+          <span
+            key={`ring-${burst}`}
+            className="heart-ring pointer-events-none absolute inset-0 rounded-full border-2 border-down"
+          />
+          <span key={`p-${burst}`} className="pointer-events-none absolute inset-0">
+            {PARTICLES.map((a) => (
+              <span
+                key={a}
+                className="particle-fly absolute left-1/2 top-1/2 -ml-0.5 -mt-0.5 h-1 w-1 rounded-full bg-down"
+                style={{ "--a": `${a}deg` } as CSSProperties}
+              />
+            ))}
+          </span>
+        </>
+      )}
+      <HeartIcon
+        key={`h-${burst}`}
+        filled={liked}
+        className={`relative h-8 w-8 ${liked ? "heart-pop text-down" : "text-white"}`}
+      />
+    </span>
+  );
+}
+
+/**
+ * A number that animates when it changes.
+ *
+ * Keyed on its own value, so React remounts this span — and the CSS animation
+ * replays — exactly when the number moved, and never on a re-render that left
+ * it unchanged. Static text updates are easy to miss (change blindness); a roll
+ * is what makes a like count read as having actually gone up. An invisible copy
+ * of the value holds the width so the rail does not jump mid-animation.
+ */
+function RollingCount({ value }: { value: string }) {
+  return (
+    <span className="relative inline-block overflow-hidden align-bottom">
+      <span className="invisible" aria-hidden>
+        {value}
+      </span>
+      <span key={value} className="count-roll absolute inset-0">
+        {value}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A placeholder clip, shown only while the very first page is in flight.
+ *
+ * A bare "loading…" leaves the screen black, which reads as a broken app; a
+ * shimmered skeleton of the clip that is coming is both the convention users
+ * already understand and a way to keep the layout from jumping when the real
+ * content lands. It is deliberately a still composition — the rail, the
+ * caption block, the buy button — rather than a spinning wheel.
+ */
+function ClipSkeleton() {
+  return (
+    <div className="snap-item relative h-full w-full overflow-hidden bg-black">
+      <div className="skeleton absolute inset-0 opacity-40" />
+      <div className="absolute bottom-36 right-3 flex flex-col items-center gap-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex flex-col items-center gap-1.5">
+            <div className="skeleton h-8 w-8 rounded-full" />
+            <div className="skeleton h-2 w-7 rounded" />
+          </div>
+        ))}
+      </div>
+      <div className="absolute inset-x-0 bottom-0 space-y-3 p-4 pr-20">
+        <div className="skeleton h-3 w-28 rounded" />
+        <div className="skeleton h-3 w-2/3 rounded" />
+        <div className="skeleton h-11 w-full rounded-xl" />
+      </div>
+    </div>
   );
 }

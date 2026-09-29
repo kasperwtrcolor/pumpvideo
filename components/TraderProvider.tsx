@@ -94,7 +94,7 @@ export function TraderProvider({
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`rounded-full px-4 py-2 text-sm font-semibold shadow-xl glass hairline border ${
+            className={`toast-in rounded-full px-4 py-2 text-sm font-semibold shadow-xl glass hairline border ${
               t.tone === "ok" ? "text-up" : "text-down"
             }`}
           >

@@ -80,7 +80,7 @@ export function CommentSheet({
       <button
         aria-label="close"
         onClick={onClose}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="scrim-in absolute inset-0 bg-black/70 backdrop-blur-sm"
       />
       <div className="sheet-up relative flex h-[70vh] w-full max-w-md flex-col rounded-t-3xl border-t border-line bg-panel shadow-2xl">
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line" />

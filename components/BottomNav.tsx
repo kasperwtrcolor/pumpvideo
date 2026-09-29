@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
@@ -34,6 +35,23 @@ const ITEMS = [
 export function BottomNav() {
   const path = usePathname();
 
+  /**
+   * The tab that just became active, for as long as its pop plays.
+   *
+   * Kept as local state rather than a class on `active` so the animation runs on
+   * a *change* of tab and not on first paint — an icon that pops every time you
+   * load a page is decoration, not feedback.
+   */
+  const [pop, setPop] = useState<string | null>(null);
+  const prev = useRef(path);
+  useEffect(() => {
+    if (prev.current === path) return;
+    prev.current = path;
+    setPop(path);
+    const t = setTimeout(() => setPop(null), 340);
+    return () => clearTimeout(t);
+  }, [path]);
+
   return (
     <nav
       aria-label="Primary"
@@ -48,15 +66,17 @@ export function BottomNav() {
                 href={it.href}
                 aria-label={it.label}
                 aria-current={active ? "page" : undefined}
-                className={`flex h-14 items-center justify-center transition active:scale-90 ${
+                className={`press flex h-14 items-center justify-center ${
                   active ? "text-accent" : "text-muted hover:text-ink"
                 }`}
               >
-                {it.href === "/" && <HomeIcon className="h-7 w-7" />}
-                {it.href === "/coins" && <ChartIcon className="h-7 w-7" />}
-                {it.href === "/upload" && <PlusIcon className="h-7 w-7" />}
-                {it.href === "/favorites" && <StarIcon className="h-7 w-7" />}
-                {it.href === "/account" && <AccountGlyph />}
+                <span className={pop === it.href ? "nav-pop inline-flex" : "inline-flex"}>
+                  {it.href === "/" && <HomeIcon className="h-7 w-7" />}
+                  {it.href === "/coins" && <ChartIcon className="h-7 w-7" />}
+                  {it.href === "/upload" && <PlusIcon className="h-7 w-7" />}
+                  {it.href === "/favorites" && <StarIcon className="h-7 w-7" />}
+                  {it.href === "/account" && <AccountGlyph />}
+                </span>
                 <span className="sr-only">{it.label}</span>
               </Link>
             </li>

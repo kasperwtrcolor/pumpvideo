@@ -210,7 +210,7 @@ export function BuySheet({
       <button
         aria-label="close"
         onClick={close}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="scrim-in absolute inset-0 bg-black/70 backdrop-blur-sm"
       />
       <div className="sheet-up relative w-full max-w-md rounded-t-3xl border-t border-line bg-panel pb-6 shadow-2xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line" />

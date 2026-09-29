@@ -13,6 +13,7 @@ import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { getBase58Decoder } from "@solana/kit";
 import { QRCodeSVG } from "qrcode.react";
 import { useTrader } from "./TraderProvider";
+import { CheckIcon, ExternalIcon } from "./Icons";
 import { shortAddr } from "@/lib/format";
 import { LEGAL_LINKS } from "@/lib/legal";
 
@@ -358,9 +359,16 @@ export function AccountPanel() {
               </div>
               <button
                 onClick={() => void copy(address)}
-                className="w-full rounded-xl border border-line bg-panel2 py-2.5 text-[12px] font-bold hover:border-accent"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-line bg-panel2 py-2.5 text-[12px] font-bold hover:border-accent"
               >
-                {copied ? "Copied ✓" : "Copy address"}
+                {copied ? (
+                  <>
+                    <CheckIcon key="c" className="star-pop h-3.5 w-3.5 text-accent" />
+                    Copied
+                  </>
+                ) : (
+                  "Copy address"
+                )}
               </button>
             </div>
 
@@ -449,7 +457,11 @@ export function AccountPanel() {
                 rel="noreferrer"
                 className="mt-3 block break-all rounded-xl border border-up/40 bg-up/10 p-3 text-[11px] text-up"
               >
-                Sent ✓ — view on Explorer ↗
+                <span className="inline-flex items-center gap-1.5 font-bold">
+                  <CheckIcon className="h-3.5 w-3.5" />
+                  Sent — view on Explorer
+                  <ExternalIcon className="h-3 w-3" />
+                </span>
                 <div className="mt-1 font-mono text-[10px] opacity-80">{lastSig}</div>
               </a>
             )}

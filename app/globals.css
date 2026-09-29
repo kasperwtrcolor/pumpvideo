@@ -65,6 +65,33 @@ body {
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.85);
 }
 
+/*
+ * Motion tokens.
+ *
+ * The easings and durations are Material 3's, taken from its published spec
+ * rather than invented: `standard` for things that move within the screen,
+ * `emphasized-decelerate` for things entering (they should ease *out*, arriving
+ * gently), `emphasized-accelerate` for things leaving. Apple's HIG is the other
+ * half of the rule — motion must be brief, purposeful, and never the only way
+ * state is communicated — which is why every animation below is either feedback
+ * for a tap or a state change, and none of them run on a loop over content the
+ * user is reading.
+ *
+ * Durations are M3's too: 150–200ms for a tap acknowledgement, 250–400ms for a
+ * surface arriving, 500–800ms only for the deliberate, once-per-action moments.
+ */
+:root {
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  --dur-tap: 150ms;
+  --dur-short: 200ms;
+  --dur-medium: 300ms;
+  --dur-long: 500ms;
+}
+
+/* A surface arriving — sheets, toasts. Eases out, so it settles rather than stops. */
 @keyframes sheet-up {
   from {
     transform: translateY(100%);
@@ -74,7 +101,270 @@ body {
   }
 }
 .sheet-up {
-  animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: sheet-up 340ms var(--ease-decelerate);
+}
+
+/** The dimming behind a sheet. Fades in slightly ahead of the surface itself. */
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.scrim-in {
+  animation: scrim-in 220ms var(--ease-standard);
+}
+
+/*
+ * The heart's acknowledgement. A quick dip before the overshoot, so the tap
+ * feels like it had weight, then a settle — 380ms, well under the point where
+ * an interaction animation starts to feel like a wait.
+ */
+@keyframes heart-pop {
+  0% {
+    transform: scale(1);
+  }
+  22% {
+    transform: scale(0.82);
+  }
+  55% {
+    transform: scale(1.3);
+  }
+  78% {
+    transform: scale(0.96);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.heart-pop {
+  animation: heart-pop 380ms var(--ease-standard);
+}
+
+/** The ring that expands out of the heart on a like. */
+@keyframes heart-ring {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+}
+.heart-ring {
+  animation: heart-ring 480ms var(--ease-decelerate) forwards;
+}
+
+/*
+ * Confetti. Each particle is a dot rotated to its own angle, then pushed
+ * outward along that angle — so one keyframe serves all of them and the spread
+ * comes from the per-particle `--a` set inline.
+ */
+@keyframes particle-fly {
+  0% {
+    transform: rotate(var(--a)) translateY(-4px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--a)) translateY(-26px) scale(0.2);
+    opacity: 0;
+  }
+}
+.particle-fly {
+  animation: particle-fly 520ms var(--ease-decelerate) forwards;
+}
+
+/**
+ * The big heart a double-tap drops in the middle of the clip. Blooms, holds
+ * long enough to read, then fades — the sequence Instagram and TikTok trained
+ * everyone to expect.
+ */
+@keyframes big-heart {
+  0% {
+    transform: scale(0.3) rotate(-12deg);
+    opacity: 0;
+  }
+  18% {
+    transform: scale(1.18) rotate(4deg);
+    opacity: 0.96;
+  }
+  32% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.96;
+  }
+  72% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.96;
+  }
+  100% {
+    transform: scale(1.3) rotate(6deg);
+    opacity: 0;
+  }
+}
+.big-heart {
+  animation: big-heart 820ms var(--ease-standard) forwards;
+}
+
+/** The star's save pop — a small twist so it reads as "filed away". */
+@keyframes star-pop {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  40% {
+    transform: scale(1.38) rotate(-14deg);
+  }
+  70% {
+    transform: scale(0.9) rotate(7deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+.star-pop {
+  animation: star-pop 420ms var(--ease-standard);
+}
+
+/**
+ * A number that changed. It rolls up from below rather than simply swapping,
+ * so the eye is drawn to the fact that it moved — which static text often fails
+ * to communicate (change blindness). Replayed by keying the element on its value.
+ */
+@keyframes count-roll {
+  from {
+    transform: translateY(70%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.count-roll {
+  animation: count-roll 240ms var(--ease-decelerate);
+}
+
+/** A rail button being pressed. Scale-down follows the finger, like a real button. */
+.press {
+  transition: transform var(--dur-tap) var(--ease-standard);
+}
+.press:active {
+  transform: scale(0.86);
+}
+
+/** A tab changing. One pop, on the icon that became active. */
+@keyframes nav-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.24);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.nav-pop {
+  animation: nav-pop 320ms var(--ease-standard);
+}
+
+/** The reshuffle icon acknowledging its own tap with one full turn. */
+@keyframes spin-once {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin-once {
+  animation: spin-once 480ms var(--ease-standard);
+}
+
+/** A toast arriving. Same easing as a sheet, because it is also a surface. */
+@keyframes toast-in {
+  from {
+    transform: translateY(130%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.toast-in {
+  animation: toast-in 340ms var(--ease-decelerate);
+}
+
+/**
+ * A clip being scrolled into the feed. Very slight — a 10px rise and a fade.
+ * Anything larger fights the scroll gesture, which the user is already driving.
+ */
+@keyframes clip-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.clip-enter {
+  animation: clip-enter 300ms var(--ease-standard);
+}
+
+/** A placeholder for content still loading. Sweeps, so it reads as "working". */
+@keyframes shimmer {
+  from {
+    background-position: -180% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-panel2) 0%,
+    color-mix(in oklab, var(--color-line) 90%, transparent) 50%,
+    var(--color-panel2) 100%
+  );
+  background-size: 180% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/**
+ * One switch for all of it.
+ *
+ * Apple's guidance is explicit that motion must be optional, and vestibular
+ * sensitivity is real — so when the platform says reduce motion, the feedback
+ * is delivered as an instant state change instead of a movement. Nothing here
+ * becomes unusable; it just stops moving.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-up,
+  .scrim-in,
+  .heart-pop,
+  .heart-ring,
+  .particle-fly,
+  .big-heart,
+  .star-pop,
+  .count-roll,
+  .nav-pop,
+  .spin-once,
+  .toast-in,
+  .clip-enter,
+  .skeleton {
+    animation: none;
+  }
+  .press,
+  .press:active {
+    transition: none;
+    transform: none;
+  }
 }
 
 @keyframes pulse-dot {
