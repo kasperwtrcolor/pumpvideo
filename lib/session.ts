@@ -11,13 +11,21 @@ export type TraderRecord = {
   walletAddress: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  privyDid: string | null;
+  email: string | null;
+  loginMethod: string | null;
   practiceBalance: number;
   practiceStartBal: number;
   createdAt: Date;
 };
 
+/**
+ * 128 bits of randomness. The old 32-bit handle was fine when the cookie only
+ * held play money, but a session now unlocks a real wallet address and the
+ * account's practice history — that needs to be unguessable, not merely unique.
+ */
 function newHandle() {
-  return `anon-${randomBytes(4).toString("hex")}`;
+  return `anon-${randomBytes(16).toString("hex")}`;
 }
 
 /**

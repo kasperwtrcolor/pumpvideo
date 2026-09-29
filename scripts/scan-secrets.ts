@@ -13,14 +13,18 @@ import { execSync } from "node:child_process";
 
 function loadEnv(): Record<string, string> {
   const out: Record<string, string> = {};
-  try {
-    for (const line of readFileSync(".env", "utf8").split("\n")) {
-      const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-      if (!m) continue;
-      out[m[1]] = m[2].replace(/^"|"$/g, "");
+  // .env.local wins over .env, matching Next.js's own precedence — otherwise a
+  // secret that only exists in .env.local would go unscanned.
+  for (const file of [".env", ".env.local"]) {
+    try {
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+        if (!m) continue;
+        out[m[1]] = m[2].replace(/^"|"$/g, "");
+      }
+    } catch {
+      /* file absent — fine */
     }
-  } catch {
-    /* no .env — nothing to check */
   }
   return out;
 }
@@ -31,6 +35,11 @@ function secretsFrom(env: Record<string, string>): { name: string; value: string
 
   const cron = env.CRON_SECRET;
   if (cron && cron.length >= 12) found.push({ name: "CRON_SECRET", value: cron });
+
+  // The Privy app secret mints trusted identities — leaking it lets anyone
+  // forge a login. The app *id* is public by design and is not scanned.
+  const privy = env.PRIVY_APP_SECRET;
+  if (privy && privy.length >= 20) found.push({ name: "PRIVY_APP_SECRET", value: privy });
 
   // A *keyed* RPC endpoint is a secret; the public mainnet URL is not — it is
   // literally the hardcoded fallback in lib/pumpfun.ts, so flagging it is noise

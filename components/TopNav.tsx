@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTrader } from "./TraderProvider";
-import { WalletButton } from "./WalletButton";
+import { AccountButton } from "./AccountButton";
 import { fmtSol } from "@/lib/format";
 
 const TABS = [
@@ -59,7 +59,7 @@ export function TopNav() {
             <span className="hidden sm:inline"> SOL</span>
           </span>
         </div>
-        <WalletButton />
+        <AccountButton />
       </div>
     </header>
   );

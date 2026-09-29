@@ -100,14 +100,27 @@ model Clip {
   @@index([rank])
 }
 
-/// A viewer. Anonymous until they connect a Solana wallet.
+/// A viewer. Anonymous until they log in or connect a Solana wallet.
 /// Every trader gets a paper account so the app is usable with zero wallet (PumpClip's "practice mode").
+///
+/// Identity has two layers:
+///   1. `handle` — an unguessable random string mirrored into an httpOnly cookie.
+///      This is what makes practice mode work with no login at all.
+///   2. `privyDid` — set once the visitor logs in with Privy (email / Google / X).
+///      An anonymous trader is *adopted* at that moment, so practice balances and
+///      positions survive the upgrade to a real account.
 model Trader {
   id                String   @id @default(cuid())
-  handle            String   @unique // cookie/session identity, e.g. "anon-8f3a2c"
-  walletAddress     String?  @unique // set on connect
+  handle            String   @unique // cookie/session identity, e.g. "anon-8f3a2c…"
+  walletAddress     String?  @unique // the account's Solana wallet (embedded or linked)
   displayName       String?
   avatarUrl         String?
+
+  // --- Privy identity. All null for a pure anonymous practice user. ---
+  privyDid          String?  @unique // "did:privy:…"
+  email             String?
+  loginMethod       String? // EMAIL | GOOGLE | TWITTER
+  walletId          String? // Privy wallet id backing `walletAddress`
 
   practiceBalance   Float    @default(100) // SOL of play money
   practiceStartBal  Float    @default(100)
@@ -115,6 +128,8 @@ model Trader {
   createdAt         DateTime @default(now())
   positions         Position[]
   trades            Trade[]
+
+  @@index([privyDid])
 }
 
 /// Current holding per coin, per trader.

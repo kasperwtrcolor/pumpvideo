@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveTrader, TRADER_COOKIE } from "./session";
 import type { TraderRecord } from "./session";
+import { liveTradingEnabled } from "./capabilities";
 
 export type { TraderRecord };
 
@@ -42,6 +43,9 @@ export function publicTrader(t: {
   walletAddress: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  privyDid: string | null;
+  email: string | null;
+  loginMethod: string | null;
   practiceBalance: number;
   practiceStartBal: number;
 }) {
@@ -50,9 +54,15 @@ export function publicTrader(t: {
     walletAddress: t.walletAddress,
     displayName: t.displayName,
     avatarUrl: t.avatarUrl,
+    email: t.email,
+    loginMethod: t.loginMethod,
+    loggedIn: Boolean(t.privyDid),
     practiceBalance: t.practiceBalance,
     practiceStartBal: t.practiceStartBal,
-    mode: t.walletAddress ? "LIVE" : "PRACTICE",
+    // `mode` reflects whether this app can place real on-chain trades at all —
+    // not whether the viewer happens to have a wallet. executeLiveFill() is
+    // still a 501 stub, so claiming "LIVE" here would just be a lie.
+    mode: liveTradingEnabled() ? "LIVE" : "PRACTICE",
   };
 }
 

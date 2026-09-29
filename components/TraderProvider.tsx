@@ -14,6 +14,10 @@ export type Trader = {
   walletAddress: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  email: string | null;
+  loginMethod: string | null;
+  /** True once a verified Privy identity is bound to this trader. */
+  loggedIn: boolean;
   practiceBalance: number;
   practiceStartBal: number;
   mode: "PRACTICE" | "LIVE";

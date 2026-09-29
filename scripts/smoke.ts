@@ -141,6 +141,48 @@ async function main() {
   });
   check("LIVE fill returns 501, never a fake tx", live.status === 501, `${live.status}`);
 
+  console.log("\nprivy auth boundary");
+  // A token that merely *claims* a user must never be accepted. `alg: none` is
+  // the classic bypass — if this ever passes, anyone can become anyone.
+  const b64 = (o: unknown) =>
+    Buffer.from(JSON.stringify(o)).toString("base64url");
+  const forged = `${b64({ alg: "none", typ: "JWT" })}.${b64({
+    sub: "did:privy:forged-attacker",
+    iss: "privy.io",
+    aud: process.env.NEXT_PUBLIC_PRIVY_APP_ID || "cmuma0xbm00fy0dl9e804rf1u",
+    exp: 9999999999,
+  })}.`;
+
+  const post = (body: unknown) =>
+    fetch(`${BASE}/api/auth/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const forgedRes = await post({ accessToken: forged });
+  check("forged alg=none JWT is rejected", forgedRes.status === 401, `${forgedRes.status}`);
+  const garbageRes = await post({ accessToken: "not-a-jwt" });
+  check("garbage token is rejected", garbageRes.status === 401, `${garbageRes.status}`);
+  const emptyRes = await post({});
+  check("missing token is rejected", emptyRes.status === 401, `${emptyRes.status}`);
+
+  const wd = await fetch(`${BASE}/api/wallet/withdraw`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ to: "11111111111111111111111111111112", amountSol: 1 }),
+  });
+  check("withdraw without a session is rejected", wd.status === 401, `${wd.status}`);
+
+  const bal = await fetch(
+    `${BASE}/api/wallet/balance?address=So11111111111111111111111111111111111111112`,
+  );
+  const balBody = (await bal.json()) as { sol?: number };
+  check("balance route returns a live figure", bal.ok && Number.isFinite(balBody.sol), `${balBody.sol} SOL`);
+
+  const balBad = await fetch(`${BASE}/api/wallet/balance?address=not-a-key`);
+  check("balance rejects a bad pubkey", balBad.status === 400, `${balBad.status}`);
+
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
