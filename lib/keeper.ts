@@ -7,7 +7,14 @@
  * refreshed nothing managed to look healthy in one place and broken in the
  * other. All refresh logic lives here now.
  *
- * Two sources, because one cannot cover the catalog:
+ * The keeper does two jobs per tick:
+ *
+ *   1. refresh prices for the catalog (below), and
+ *   2. ingest newly launched tokens (opt-in, `opts.ingest`), so the feed is
+ *      not a frozen snapshot of whatever was popular the day it was seeded.
+ *      Ingest runs first, so coins it discovers get a price on the same tick.
+ *
+ * Price refresh needs two sources, because one cannot cover the catalog:
  *
  *   graduated coins -> Dexscreener, by mint, batched 30/call.
  *     They hold a persistent AMM pool, so they are indexed permanently and are
@@ -22,6 +29,7 @@
 import { prisma } from "./db";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
+import { ingestNewTokens } from "./ingest";
 import { solUsd } from "./sol-price";
 
 export type SyncResult = {
@@ -34,6 +42,13 @@ export type SyncResult = {
   errors: string[];
   sweepErrors: string[];
   note?: string;
+  /** Present only when an ingest step ran — see `opts.ingest`. */
+  ingested?: {
+    considered: number;
+    coins: number;
+    clips: number;
+    skipped: number;
+  };
 };
 
 /** totalSupply is raw units with 6 decimals. */
@@ -42,7 +57,34 @@ function wholeSupply(totalSupply: string): number {
   return Number.isFinite(n) && n > 0 ? n / 1e6 : 0;
 }
 
-export async function runKeeper(opts: { mints?: string[]; limit: number }): Promise<SyncResult> {
+export async function runKeeper(opts: {
+  mints?: string[];
+  limit: number;
+  /**
+   * How many freshly launched coins to consider for ingestion, or 0/undefined
+   * to skip. Off by default: the HTTP route shares this function, and a
+   * serverless invocation should not be pulling thousands of new coins off
+   * pump.fun. The VPS cron opts in (see scripts/sync-cron.sh).
+   */
+  ingest?: number;
+}): Promise<SyncResult> {
+  // Ingest runs FIRST, so coins discovered on this tick are part of the catalog
+  // that the refresh below walks — they get a real price immediately instead of
+  // waiting five minutes for the next tick.
+  //
+  // Its own try/catch: pump.fun rate-limits hard, and a failed ingest must not
+  // turn a perfectly good price refresh into a failed sync. A targeted `mints`
+  // refresh is a repair, not a discovery pass, so it never ingests.
+  const errors: string[] = [];
+  let ingested: SyncResult["ingested"];
+  if (!opts.mints?.length && opts.ingest && opts.ingest > 0) {
+    try {
+      ingested = await ingestNewTokens({ limit: opts.ingest });
+    } catch (e) {
+      errors.push(`ingest: ${(e as Error).message.slice(0, 90)}`);
+    }
+  }
+
   const coins = opts.mints?.length
     ? await prisma.coin.findMany({ where: { mint: { in: opts.mints } } })
     : await prisma.coin.findMany({
@@ -58,15 +100,15 @@ export async function runKeeper(opts: { mints?: string[]; limit: number }): Prom
     notFound: 0,
     viaDex: 0,
     viaPumpfun: 0,
-    errors: [],
+    errors,
     sweepErrors: [],
+    ingested,
   };
   if (coins.length === 0) return empty;
 
   const graduated = coins.filter((c) => c.complete);
   const onCurve = coins.filter((c) => !c.complete);
 
-  const errors: string[] = [];
   const sweepErrors: string[] = [];
   let updated = 0;
   let notFound = 0;
@@ -174,6 +216,9 @@ export async function runKeeper(opts: { mints?: string[]; limit: number }): Prom
       : "no coin resolved — the catalog has gone stale";
   }
 
+  // ---- ingest -------------------------------------------------------------
+  // Already ran, above, before the catalog was read.
+
   return {
     ok: true,
     checked: coins.length,
@@ -184,5 +229,6 @@ export async function runKeeper(opts: { mints?: string[]; limit: number }): Prom
     errors: errors.slice(0, 5),
     sweepErrors: sweepErrors.slice(0, 5),
     note,
+    ingested,
   };
 }

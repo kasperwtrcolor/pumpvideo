@@ -89,3 +89,29 @@ body {
 .pulse-dot {
   animation: pulse-dot 1.6s ease-in-out infinite;
 }
+
+/*
+ * Slow drift for a clip that has no video yet.
+ *
+ * A freshly ingested token has art but no rendered video, and a still frame in a
+ * swipe feed reads as a broken clip. Drifting it is enough to say "this is
+ * alive" without pretending it is something it isn't. `prefers-reduced-motion`
+ * turns it off — a decorative animation is not worth making anyone motion-sick.
+ */
+@keyframes kenburns {
+  from {
+    transform: scale(1.04) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.18) translate3d(0, -1.5%, 0);
+  }
+}
+.kenburns {
+  animation: kenburns 16s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kenburns {
+    animation: none;
+    transform: scale(1.04);
+  }
+}

@@ -47,7 +47,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <AuthBridge>
             <TraderProvider initialSolUsd={usd}>
               <PrivySessionSync />
-              <div className="mx-auto flex h-dvh w-full max-w-[440px] flex-col border-x border-line bg-bg">
+              {/* `relative` anchors AppHeader's overlay mode on the feed, where
+                  it takes no layout space so the video runs to the top edge. */}
+              <div className="relative mx-auto flex h-dvh w-full max-w-[440px] flex-col border-x border-line bg-bg">
                 <AppHeader />
                 <div className="min-h-0 flex-1">{children}</div>
                 <BottomNav />

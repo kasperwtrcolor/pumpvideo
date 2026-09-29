@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { privyEnabled } from "./PrivyRoot";
 import { useTrader } from "./TraderProvider";
-import { ChartIcon, HomeIcon, PersonIcon, PlusIcon } from "./Icons";
+import { ChartIcon, HomeIcon, PersonIcon, PlusIcon, StarIcon } from "./Icons";
 
 /**
  * Bottom tab bar, the way modern mobile apps do it.
@@ -13,6 +13,10 @@ import { ChartIcon, HomeIcon, PersonIcon, PlusIcon } from "./Icons";
  * Icons only — no words — at a 28px glyph size with a generous tap target. The
  * account tab shows the trader's avatar once they're signed in, so the bar also
  * answers "am I logged in?" at a glance.
+ *
+ * Upload sits in the middle slot, which is the one place a five-item bar always
+ * has a thumb resting near, and it is the only destination that creates rather
+ * than consumes.
  *
  * The bar takes layout space rather than overlaying, so the feed simply gets a
  * shorter viewport and nothing is ever hidden behind it. `env(safe-area-inset-*)`
@@ -23,6 +27,7 @@ const ITEMS = [
   { href: "/", label: "Feed" },
   { href: "/coins", label: "Coins" },
   { href: "/upload", label: "Upload" },
+  { href: "/favorites", label: "Favourites" },
   { href: "/account", label: "Account" },
 ] as const;
 
@@ -50,6 +55,7 @@ export function BottomNav() {
                 {it.href === "/" && <HomeIcon className="h-7 w-7" />}
                 {it.href === "/coins" && <ChartIcon className="h-7 w-7" />}
                 {it.href === "/upload" && <PlusIcon className="h-7 w-7" />}
+                {it.href === "/favorites" && <StarIcon className="h-7 w-7" />}
                 {it.href === "/account" && <AccountGlyph />}
                 <span className="sr-only">{it.label}</span>
               </Link>

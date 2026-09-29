@@ -26,7 +26,8 @@ export type CoinDTO = {
 export type ClipDTO = {
   id: string;
   source: string;
-  videoUrl: string;
+  /** Null until the clip has been rendered — the feed then shows the coin art. */
+  videoUrl: string | null;
   thumbUrl: string | null;
   caption: string | null;
   author: string | null;
@@ -38,11 +39,29 @@ export type ClipDTO = {
   views: number;
   /** True when the requesting trader has liked this clip. */
   likedByMe?: boolean;
+  /** True when the requesting trader has saved this clip to favourites. */
+  favoritedByMe?: boolean;
 };
 
 export type FeedItemDTO = ClipDTO & { coin: CoinDTO };
 
 export type FeedResponse = {
+  items: FeedItemDTO[];
+  nextOffset: number;
+  total: number;
+  hasMore: boolean;
+  solUsd: number;
+};
+
+/**
+ * GET /api/favorites — the caller's saved clips, newest save first.
+ *
+ * Shaped like a feed page so the same card component can render both, but
+ * paginated by the favourite's own `createdAt` rather than a feed rank: the
+ * order here is "what I saved, most recent first", which has nothing to do with
+ * how popular the coin is.
+ */
+export type FavoritesResponse = {
   items: FeedItemDTO[];
   nextOffset: number;
   total: number;

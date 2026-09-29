@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { FeedItemDTO, FeedResponse } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
 import { CommentSheet } from "./CommentSheet";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym } from "@/lib/format";
+import { artUrl } from "@/lib/art-url";
+import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
+import { StarIcon } from "./Icons";
 
 type Sort = "hot" | "new" | "top";
 
@@ -19,6 +23,9 @@ const SORTS: { key: Sort; label: string }[] = [
 
 /** How many clips a signed-out visitor can watch before we invite them in. */
 const WATCH_BEFORE_PROMPT = 5;
+
+/** Session key holding this visit's shuffle seed. */
+const SEED_KEY = "pumpclip_seed";
 
 /** Live engagement numbers for one clip, seeded from the feed and then updated
  *  from whatever the server reports after each action. */
@@ -36,6 +43,9 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const { enabled: authEnabled, authenticated, login, getToken } = useAuth();
 
   const [sort, setSort] = useState<Sort>("hot");
+  // The shuffle seed. Null until after mount: sessionStorage does not exist
+  // during the server render, so it cannot be read in a useState initialiser.
+  const [seed, setSeed] = useState<string | null>(null);
   const [items, setItems] = useState<FeedItemDTO[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -46,6 +56,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [watched, setWatched] = useState(0);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
+  const [favorited, setFavorited] = useState<Record<string, boolean>>({});
   const [counts, setCounts] = useState<Record<string, Counts>>({});
   const [sheetIdx, setSheetIdx] = useState<number | null>(null);
   const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
@@ -55,12 +66,38 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   // A view is counted once per clip per session — re-scrolling shouldn't inflate it.
   const viewed = useRef<Set<string>>(new Set());
 
+  /**
+   * Read this session's shuffle seed, minting one on the first visit.
+   *
+   * Session storage rather than local storage on purpose: the point is that the
+   * order is different every time you open the app, not that it is frozen
+   * forever. Falling back to an in-memory seed keeps it working when storage is
+   * blocked (private mode); the only cost is a fresh order per navigation.
+   */
+  useEffect(() => {
+    let s: string | null = null;
+    try {
+      s = sessionStorage.getItem(SEED_KEY);
+    } catch {
+      /* storage blocked */
+    }
+    if (!s) {
+      s = newSeed();
+      try {
+        sessionStorage.setItem(SEED_KEY, s);
+      } catch {
+        /* storage blocked — the in-memory seed still works */
+      }
+    }
+    setSeed(s);
+  }, []);
+
   const load = useCallback(
-    async (nextSort: Sort, nextOffset: number, replace: boolean) => {
+    async (nextSort: Sort, nextOffset: number, nextSeed: string, replace: boolean) => {
       setLoading(true);
       try {
         const r = await fetch(
-          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}`,
+          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}&seed=${encodeURIComponent(nextSeed)}`,
           { cache: "no-store" },
         );
         const j = (await r.json()) as FeedResponse;
@@ -68,10 +105,15 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
         setItems((prev) => (replace ? j.items : [...prev, ...j.items]));
 
         // Seed real state from the server rather than assuming everything
-        // starts unliked and at zero.
+        // starts unliked/unsaved and at zero.
         setLiked((prev) => {
           const next = replace ? {} : { ...prev };
           for (const it of j.items) next[it.id] = Boolean(it.likedByMe);
+          return next;
+        });
+        setFavorited((prev) => {
+          const next = replace ? {} : { ...prev };
+          for (const it of j.items) next[it.id] = Boolean(it.favoritedByMe);
           return next;
         });
         setCounts((prev) => {
@@ -91,13 +133,28 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     [initialSolUsd, toast],
   );
 
+  // (Re)load from the top whenever the sort or the seed changes. A new seed is
+  // a fresh permutation, so the list has to be rebuilt rather than appended to.
   useEffect(() => {
+    if (!seed) return;
     setItems([]);
     setOffset(0);
     setHasMore(true);
     setActive(0);
-    void load(sort, 0, true);
-  }, [sort, load]);
+    void load(sort, 0, seed, true);
+  }, [sort, seed, load]);
+
+  /** Reshuffle: mint a new seed and start the wall again. */
+  const reshuffle = useCallback(() => {
+    const s = newSeed();
+    try {
+      sessionStorage.setItem(SEED_KEY, s);
+    } catch {
+      /* storage blocked */
+    }
+    setSeed(s);
+    scroller.current?.scrollTo({ top: 0 });
+  }, []);
 
   // Pause everything but the clip in view; preload the neighbours; count a real
   // watch the first time a clip actually plays.
@@ -108,12 +165,14 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
       (entries) => {
         for (const e of entries) {
           const el = e.target as HTMLElement;
-          const vid = el.querySelector("video");
           const idx = Number(el.dataset.index);
-          if (!vid) continue;
           if (e.isIntersecting && e.intersectionRatio > 0.6) {
             setActive(idx);
-            vid.play().catch(() => {});
+            // A clip with no rendered video yet has no <video> to drive — it
+            // still counts as watched, otherwise the login nudge would never
+            // fire on a wall of freshly ingested tokens.
+            const vid = el.querySelector("video");
+            if (vid) vid.play().catch(() => {});
             const id = el.dataset.clipId;
             if (id && !viewed.current.has(id)) {
               viewed.current.add(id);
@@ -121,7 +180,8 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
               setWatched(viewed.current.size);
             }
           } else {
-            vid.pause();
+            const vid = el.querySelector("video");
+            if (vid) vid.pause();
           }
         }
       },
@@ -133,10 +193,10 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   // Prefetch the next page a screen before the end.
   useEffect(() => {
-    if (hasMore && !loading && items.length > 0 && active >= items.length - 3) {
-      void load(sort, offset, false);
+    if (seed && hasMore && !loading && items.length > 0 && active >= items.length - 3) {
+      void load(sort, offset, seed, false);
     }
-  }, [active, hasMore, loading, items.length, offset, sort, load]);
+  }, [active, hasMore, loading, items.length, offset, sort, seed, load]);
 
   const onFilled = useCallback(
     (idx: number, priceSol: number) => {
@@ -174,6 +234,39 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
       }
     },
     [authenticated, getToken, login, toast],
+  );
+
+  /**
+   * Save / unsave. Optimistic, because this is the one action where waiting on a
+   * round trip feels broken: the star has to fill under the thumb.
+   */
+  const onFavorite = useCallback(
+    async (it: FeedItemDTO) => {
+      if (!authenticated) {
+        toast("Log in to save clips", "bad");
+        login();
+        return;
+      }
+      const next = !favorited[it.id];
+      setFavorited((f) => ({ ...f, [it.id]: next }));
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("session expired — log in again");
+        const r = await fetch(`/api/clips/${it.id}/favorite`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const j = (await r.json()) as { detail?: string; error?: string; favorited?: boolean };
+        if (!r.ok) throw new Error(j.detail || j.error || "could not save that");
+        // Trust the server's answer, not the guess we already showed.
+        setFavorited((f) => ({ ...f, [it.id]: Boolean(j.favorited) }));
+        toast(j.favorited ? "saved to favourites" : "removed from favourites");
+      } catch (e) {
+        setFavorited((f) => ({ ...f, [it.id]: !next })); // roll back
+        toast((e as Error).message, "bad");
+      }
+    },
+    [authenticated, favorited, getToken, login, toast],
   );
 
   const onShare = useCallback(
@@ -238,24 +331,33 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   return (
     <div className="relative h-full">
-      {/* sort rail */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-3">
-        <div className="pointer-events-auto flex gap-1 rounded-full border border-line glass p-1">
+      {/* sort rail — sits below the transparent header overlay, which the feed
+          renders underneath so the video runs to the top edge of the screen. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-[calc(env(safe-area-inset-top)+3.25rem)]">
+        <div className="pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur">
           {SORTS.map((s) => (
             <button
               key={s.key}
               onClick={() => setSort(s.key)}
               className={`rounded-full px-3 py-1 text-[11px] font-bold transition ${
-                sort === s.key ? "bg-ink text-black" : "text-muted hover:text-ink"
+                sort === s.key ? "bg-ink text-black" : "text-white/70 hover:text-white"
               }`}
             >
               {s.label}
             </button>
           ))}
           <button
+            onClick={reshuffle}
+            title="reshuffle the wall"
+            aria-label="Reshuffle"
+            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-white/70 transition hover:text-white active:rotate-180"
+          >
+            ⤮
+          </button>
+          <button
             onClick={() => setMuted((m) => !m)}
             title="toggle sound"
-            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-muted hover:text-ink"
+            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-white/70 hover:text-white"
           >
             {muted ? "🔇" : "🔊"}
           </button>
@@ -270,16 +372,18 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             index={i}
             muted={muted}
             liked={Boolean(liked[it.id])}
+            favorited={Boolean(favorited[it.id])}
             counts={counts[it.id] ?? countsOf(it)}
             solUsd={solUsd}
             onLike={() => void onLike(it)}
+            onFavorite={() => void onFavorite(it)}
             onBuy={() => setSheetIdx(i)}
             onShare={() => void onShare(it)}
             onComment={() => setCommentFor(it)}
           />
         ))}
 
-        {items.length === 0 && !loading && (
+        {items.length === 0 && seed !== null && !loading && (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <p className="text-lg font-bold">Nothing on the wall yet.</p>
             <p className="text-xs text-muted">
@@ -367,9 +471,11 @@ function ClipPanel({
   index,
   muted,
   liked,
+  favorited,
   counts,
   solUsd,
   onLike,
+  onFavorite,
   onBuy,
   onShare,
   onComment,
@@ -378,9 +484,11 @@ function ClipPanel({
   index: number;
   muted: boolean;
   liked: boolean;
+  favorited: boolean;
   counts: Counts;
   solUsd: number;
   onLike: () => void;
+  onFavorite: () => void;
   onBuy: () => void;
   onShare: () => void;
   onComment: () => void;
@@ -393,32 +501,60 @@ function ClipPanel({
     if (vid.current) vid.current.muted = muted;
   }, [muted]);
 
+  // A clip with no rendered video shows the coin's art instead. That is the
+  // normal state for a token the ingester picked up minutes ago — the art is
+  // what the coin actually looks like, so it is honest, and drifting it keeps
+  // the panel from reading as a broken clip. Prefer the stored thumb; fall back
+  // to the coin art through the gateway chain.
+  const stillUrl = item.thumbUrl ?? artUrl(coin.imageUrl);
+  const hasVideo = Boolean(item.videoUrl);
+
   return (
     <section
       data-index={index}
       data-clip-id={item.id}
       className="snap-item relative h-full w-full overflow-hidden bg-black"
     >
-      {/* thumbnail sits underneath so the panel is never blank while the file loads */}
-      {item.thumbUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.thumbUrl}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover opacity-60"
-        />
-      )}
+      {hasVideo ? (
+        <>
+          {/* thumbnail sits underneath so the panel is never blank while the file loads */}
+          {stillUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={stillUrl}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover opacity-60"
+            />
+          )}
 
-      <video
-        ref={vid}
-        src={item.videoUrl}
-        poster={item.thumbUrl ?? undefined}
-        loop
-        muted
-        playsInline
-        preload={index < 3 ? "auto" : "metadata"}
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+          <video
+            ref={vid}
+            src={item.videoUrl ?? undefined}
+            poster={stillUrl ?? undefined}
+            loop
+            muted
+            playsInline
+            preload={index < 3 ? "auto" : "metadata"}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </>
+      ) : (
+        <>
+          {stillUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={stillUrl}
+              alt=""
+              className="kenburns absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+          {/* Labelled, not hidden: a buyer should know they are looking at art and
+              not a clip. It is a new token, not a broken one. */}
+          <span className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-black/45 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white/80 backdrop-blur">
+            new token · clip soon
+          </span>
+        </>
+      )}
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/55" />
 
@@ -439,14 +575,19 @@ function ClipPanel({
           onClick={onLike}
           active={liked}
         />
-        <RailButton label={fmtCount(counts.comments)} sub="chat" icon="💬" onClick={onComment} />
         <RailButton
-          label={fmtCount(counts.shares)}
-          sub="share"
-          icon="↗"
-          onClick={onShare}
+          label={fmtCount(counts.comments)}
+          sub="chat"
+          icon="💬"
+          onClick={onComment}
         />
-        <RailButton label={fmtCount(counts.views)} sub="views" icon="👁" />
+        <RailButton label={fmtCount(counts.shares)} sub="share" icon="↗" onClick={onShare} />
+        <RailButton label={favorited ? "saved" : "save"} sub="later" onClick={onFavorite}>
+          <StarIcon
+            className={`h-7 w-7 ${favorited ? "text-accent" : "text-white"}`}
+            filled={favorited}
+          />
+        </RailButton>
       </div>
 
       {/* bottom info */}
@@ -521,6 +662,7 @@ function RailButton({
   onClick,
   active,
   ring,
+  children,
 }: {
   label: string;
   sub: string;
@@ -530,13 +672,16 @@ function RailButton({
   onClick?: () => void;
   active?: boolean;
   ring?: boolean;
+  children?: ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
       className="flex flex-col items-center gap-0.5 text-white transition active:scale-95"
     >
-      {art ? (
+      {children ? (
+        children
+      ) : art ? (
         <CoinAvatar
           src={art}
           symbol={symbol ?? label}

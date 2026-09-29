@@ -32,10 +32,37 @@ async function main() {
   console.log(`smoke test → ${BASE}\n`);
 
   console.log("pages");
-  for (const p of ["/", "/coins", "/account", "/portfolio", "/legal/terms", "/legal/privacy"]) {
+  for (const p of [
+    "/",
+    "/coins",
+    "/account",
+    "/portfolio",
+    "/favorites",
+    "/legal/terms",
+    "/legal/privacy",
+  ]) {
     const r = await fetch(`${BASE}${p}`);
     check(p, r.ok, `${r.status}`);
   }
+
+  // The favourites page is login-gated in its content, but the route itself must
+  // render logged-out — it explains what the star does and offers the login.
+  const favHtml = await (await fetch(`${BASE}/favorites`)).text();
+  check(
+    "favorites page renders its real content",
+    favHtml.includes("Favourites") && favHtml.includes("Save clips as you scroll"),
+    `${favHtml.length}b`,
+  );
+
+  // The bottom bar is icons-only with five tabs now. Assert on the accessible
+  // labels, since the visible text is deliberately just glyphs.
+  const home = await (await fetch(`${BASE}/`)).text();
+  check(
+    "bottom nav has five labelled tabs",
+    ["Feed", "Coins", "Upload", "Favourites", "Account"].every((l) =>
+      home.includes(`aria-label="${l}"`),
+    ),
+  );
 
   // The account page is where wallet management, the live book and sign-out now
   // live; the old modal sheet and the /portfolio tab are gone. /portfolio is
@@ -109,16 +136,97 @@ async function main() {
   console.log("\nfeed");
   const feedRes = await fetch(`${BASE}/api/feed?limit=3`);
   const feed = (await feedRes.json()) as {
-    items: { id: string; coin: { mint: string; symbol: string }; videoUrl: string }[];
+    items: {
+      id: string;
+      coin: { mint: string; symbol: string };
+      videoUrl: string | null;
+      thumbUrl: string | null;
+    }[];
     total: number;
   };
   check("feed returns items", feed.items.length > 0, `${feed.total} clips`);
-  check("feed items carry a video url", Boolean(feed.items[0]?.videoUrl));
 
-  if (feed.items[0]?.videoUrl) {
-    const vid = await fetch(`${BASE}${feed.items[0].videoUrl}`);
+  // A clip is servable if it has a video OR art. A freshly ingested token is
+  // deliberately art-only until the renderer catches up (see lib/ingest.ts), so
+  // asserting "every clip has a video" would fail on a working system — and
+  // worse, it would fail *because* ingestion is doing its job.
+  check(
+    "every feed item is renderable (video or art)",
+    feed.items.every((it) => Boolean(it.videoUrl || it.thumbUrl)),
+    feed.items.map((it) => (it.videoUrl ? "video" : "art")).join(","),
+  );
+
+  // Verify the asset, whichever kind it is.
+  const first = feed.items[0];
+  if (first?.videoUrl) {
+    const vid = await fetch(`${BASE}${first.videoUrl}`);
     check("clip asset is served", vid.ok, `${vid.status} ${vid.headers.get("content-type")}`);
   }
+  if (first?.thumbUrl && !first.videoUrl) {
+    const art = await fetch(first.thumbUrl);
+    check(
+      "art-only clip serves its art",
+      art.ok,
+      `${art.status} ${art.headers.get("content-type")}`,
+    );
+  }
+
+  // The feed is shuffled per session. These three assertions are what make the
+  // shuffle safe to ship: it must be *stable* for a given seed (or paging would
+  // repeat and skip clips) and yet actually differ across seeds (or it isn't a
+  // shuffle at all). A single "shuffle works" check would pass with
+  // `ORDER BY random()`, which is precisely the bug being guarded against.
+  console.log("\nfeed shuffle");
+  const seedA = "smoke-seed-aaaa";
+  const seedB = "smoke-seed-bbbb";
+  const ids = (j: { items: { id: string }[] }) => j.items.map((i) => i.id).join(",");
+
+  const a1 = (await (await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}`)).json()) as {
+    items: { id: string }[];
+  };
+  const a1again = (await (await fetch(`${BASE}/api/feed?limit=3&seed=${seedA}`)).json()) as {
+    items: { id: string }[];
+  };
+  check(
+    "same seed returns an identical order",
+    ids(a1) === ids(a1again),
+    ids(a1).slice(0, 40),
+  );
+
+  const a2 = (await (
+    await fetch(`${BASE}/api/feed?limit=3&offset=3&seed=${seedA}`)
+  ).json()) as { items: { id: string }[] };
+  const overlap = a2.items.filter((x) => a1.items.some((y) => y.id === x.id));
+  check(
+    "page 2 of a shuffled feed repeats nothing from page 1",
+    a1.items.length > 0 && overlap.length === 0,
+    `overlap ${overlap.length}`,
+  );
+
+  const b1 = (await (await fetch(`${BASE}/api/feed?limit=12&seed=${seedB}`)).json()) as {
+    items: { id: string }[];
+  };
+  const aWide = (await (await fetch(`${BASE}/api/feed?limit=12&seed=${seedA}`)).json()) as {
+    items: { id: string }[];
+  };
+  check(
+    "a different seed produces a different order",
+    aWide.items.length > 1 && ids(aWide) !== ids(b1),
+  );
+
+  console.log("\nfavourites");
+  const favPost = await fetch(`${BASE}/api/clips/${first.id}/favorite`, { method: "POST" });
+  check("saving requires login", favPost.status === 401, `${favPost.status}`);
+  const favList = await fetch(`${BASE}/api/favorites`);
+  check("the saved list requires login", favList.status === 401, `${favList.status}`);
+  const favBadClip = await fetch(`${BASE}/api/clips/does-not-exist/favorite`, {
+    method: "POST",
+  });
+  check(
+    "an anonymous save cannot probe whether a clip exists",
+    favBadClip.status === 401,
+    `${favBadClip.status}`,
+  );
 
   const jar = new Map<string, string>();
   const remember = (r: Response) => {

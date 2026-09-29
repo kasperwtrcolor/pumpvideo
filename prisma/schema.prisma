@@ -82,11 +82,18 @@ model Clip {
   coinId   String
   coin     Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
 
-  source   String  @default("SEED") // SEED | UPLOAD
-  videoUrl String // absolute R2 URL, or /clips/<mint>.mp4 for seeded clips
+  source   String  @default("SEED") // SEED | UPLOAD | INGEST — INGEST = picked up by the keeper's new-token sweep
+  /// Nullable on purpose. A clip whose video has not been rendered yet (a token
+  /// that was just ingested, or a render still queued) has no file to point at,
+  /// and the feed falls back to the coin's art. Making this required is what
+  /// would force the ingester to write a URL for a file that does not exist.
+  videoUrl String?
   thumbUrl String?
-  /// Set by the transcoder once the asset actually exists. The feed only serves
-  /// ready clips, so a queued-but-unrendered clip never ships a broken <video>.
+  /// Whether the feed may serve this clip at all. Set once the clip is fit to
+  /// show — which for a video means the file exists, and for a freshly ingested
+  /// token means its art is available (`videoUrl` is then null and the feed
+  /// renders the art). The feed only serves ready clips, so a queued-but-
+  /// unrendered clip never ships a broken <video>.
   ready    Boolean @default(false)
   caption  String?
   author   String? @default("unclaimed")
@@ -111,6 +118,7 @@ model Clip {
   likeRows    ClipLike[]
   commentRows ClipComment[]
   shareRows   ClipShare[]
+  favoriteRows ClipFavorite[]
 
   @@index([coinId])
   @@index([rank])
@@ -147,6 +155,7 @@ model Trader {
   likes     ClipLike[]
   comments  ClipComment[]
   shares    ClipShare[]
+  favorites ClipFavorite[]
 
   @@index([privyDid])
 }
@@ -234,4 +243,24 @@ model ClipShare {
   createdAt DateTime @default(now())
 
   @@index([clipId])
+}
+
+/// A saved clip — "keep this one, I might buy it later".
+///
+/// Deliberately not a public counter. A like is a public signal and gets a
+/// denormalised total on Clip; a favourite is a private bookmark, so there is
+/// nothing to keep in sync and no reason for one trader to see another's list.
+///
+/// The unique key makes the toggle idempotent: saving twice cannot produce two
+/// rows, so the saved list can never show the same coin twice.
+model ClipFavorite {
+  id        String   @id @default(cuid())
+  clipId    String
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  traderId  String
+  trader    Trader   @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([clipId, traderId])
+  @@index([traderId, createdAt])
 }

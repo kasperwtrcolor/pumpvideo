@@ -24,7 +24,14 @@ fi
 set -a; source "$ENV_FILE"; set +a
 
 # Bounded so a hung network call can't stack up overlapping cron runs.
-if ! timeout 120 npm run sync --silent; then
+#
+# `--ingest 8` also pulls the newest 8 launched tokens each tick and runs them
+# through the filters in lib/ingest.ts (min market cap, must have art, not
+# banned). That is what keeps the feed from being a frozen snapshot of the day
+# the catalog was seeded. 8 per 5 minutes is deliberately modest: pump.fun
+# rate-limits its ranked list hard, and the price sweep in the same tick shares
+# that budget.
+if ! timeout 120 npm run sync --silent -- --ingest 8; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi

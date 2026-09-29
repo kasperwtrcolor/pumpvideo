@@ -71,7 +71,7 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
       <div className="mx-auto max-w-2xl pb-28">
         {/* clip hero */}
         <div className="relative h-[46vh] w-full overflow-hidden bg-black">
-          {d.clips[0] ? (
+          {d.clips[0]?.videoUrl ? (
             <video
               src={d.clips[0].videoUrl}
               poster={d.clips[0].thumbUrl ?? undefined}
@@ -82,6 +82,8 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
               className="h-full w-full object-cover"
             />
           ) : coin.imageUrl ? (
+            // Covers both "no clip at all" and "a clip whose video has not been
+            // rendered yet" — a freshly ingested token. Same art either way.
             <CoinAvatar
               src={coin.imageUrl}
               symbol={coin.symbol}
@@ -209,18 +211,33 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
             clips ({d.clips.length})
           </h2>
           <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
-            {d.clips.map((c) => (
-              <video
-                key={c.id}
-                src={c.videoUrl}
-                poster={c.thumbUrl ?? undefined}
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                className="h-40 w-24 shrink-0 rounded-lg border border-line object-cover"
-              />
-            ))}
+            {d.clips.map((c) =>
+              // A clip with no rendered video yet shows its art here too — an
+              // empty <video> would be a black box in the strip.
+              c.videoUrl ? (
+                <video
+                  key={c.id}
+                  src={c.videoUrl}
+                  poster={c.thumbUrl ?? undefined}
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  className="h-40 w-24 shrink-0 rounded-lg border border-line object-cover"
+                />
+              ) : (
+                <div
+                  key={c.id}
+                  className="h-40 w-24 shrink-0 overflow-hidden rounded-lg border border-line bg-panel2"
+                >
+                  <CoinAvatar
+                    src={coin.imageUrl}
+                    symbol={coin.symbol}
+                    className="h-full w-full"
+                  />
+                </div>
+              ),
+            )}
           </div>
 
           <h2 className="mt-6 text-xs font-bold uppercase tracking-wider text-muted">

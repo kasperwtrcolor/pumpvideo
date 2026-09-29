@@ -181,7 +181,10 @@ async function main() {
 
       // Asset already on disk: just make sure the feed is allowed to serve it.
       if (!FORCE && existsSync(out) && existsSync(thumb) && !clip.ready) {
-        await prisma.clip.update({ where: { id: clip.id }, data: { ready: true } });
+        await prisma.clip.update({
+          where: { id: clip.id },
+          data: { ready: true, videoUrl: `/clips/${mint}.mp4` },
+        });
         done++;
         continue;
       }
@@ -222,8 +225,14 @@ async function main() {
 
         animate(still, out);
         buildThumb(out, thumb);
-        // Flip the clip live only after the asset exists on disk.
-        await prisma.clip.update({ where: { id: clip.id }, data: { ready: true } });
+        // Flip the clip live only after the asset exists on disk — and point it
+        // at the file. An art-only clip (videoUrl null, written by the ingester
+        // before any render existed) is upgraded here; without this it would
+        // stay an art card forever even with the video sitting on disk.
+        await prisma.clip.update({
+          where: { id: clip.id },
+          data: { ready: true, videoUrl: `/clips/${mint}.mp4` },
+        });
         done++;
         console.log(`  [${done + failed}/${todo.length}] $${clip.coin.symbol}${img ? "" : " (no art)"}`);
       } catch (e) {

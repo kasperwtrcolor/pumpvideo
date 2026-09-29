@@ -108,7 +108,7 @@ export function serializeCoin(c: {
 export function serializeClip(c: {
   id: string;
   source: string;
-  videoUrl: string;
+  videoUrl: string | null;
   thumbUrl: string | null;
   caption: string | null;
   author: string | null;
