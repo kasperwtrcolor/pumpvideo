@@ -8,15 +8,64 @@ export function fmtSol(n: number | null | undefined, dp = 3): string {
   if (a >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   if (a >= 1) return n.toFixed(dp);
   if (a >= 0.001) return n.toFixed(dp);
-  return n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  // Was `n.toFixed(6)`, which rounds a genuinely small amount — a dust balance,
+  // a fresh coin's market cap — down to a flat "0". That reads as "you have
+  // nothing" when the truth is "you have a very small amount", so keep
+  // significant digits instead.
+  return plainDecimal(n, a);
 }
 
-/** Price per token, which can be 1e-9 — switch to exponential below 1e-4. */
+/**
+ * Decimal places needed to show three significant digits of a value below 1.
+ *
+ * 4.98e-8 -> 10 places -> "0.0000000498". Capped at toFixed's limit.
+ */
+function decimalsFor(a: number): number {
+  const exp = Math.floor(Math.log10(a));
+  return Math.min(20, Math.max(2, -exp + 2));
+}
+
+/**
+ * Render a sub-1 value as a plain decimal.
+ *
+ * The guard matters: rounding to three significant digits carries 0.9999 up to
+ * "1.000", which trims to "1". A price printed as exactly 1 when it is 0.9999
+ * is not a rounding nicety, it is a wrong number — and on a trading screen the
+ * difference is the whole point. Widen the precision until the value stops
+ * crossing the boundary it was supposed to stay under.
+ */
+function plainDecimal(n: number, a: number): string {
+  let dp = decimalsFor(a);
+  if (dp > 20) return n.toExponential(2);
+  let out = trimZeros(n.toFixed(dp));
+  while (a < 1 && Number(out) >= 1 && dp < 20) {
+    dp++;
+    out = trimZeros(n.toFixed(dp));
+  }
+  // Rounding a non-zero value all the way down to "0" is the same lie in the
+  // other direction. Below what a plain decimal can show, exponential is the
+  // honest answer.
+  return out === "0" ? n.toExponential(2) : out;
+}
+
+function trimZeros(s: string): string {
+  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+}
+
+/**
+ * Price per token.
+ *
+ * A fresh coin trades around 1e-8 SOL. This used to render those as
+ * `n.toExponential(2)` — "4.98e-8" — which is how a number looks in a debugger,
+ * not in a price tag. Small values now render as plain decimals with three
+ * significant digits ("0.0000000498"); only absurd magnitudes fall back to
+ * exponential, where a compact form is genuinely more readable.
+ */
 export function fmtPrice(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n) || n === 0) return "—";
-  if (Math.abs(n) < 0.0001) return n.toExponential(2);
-  if (Math.abs(n) < 1) return n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
-  return n.toFixed(4);
+  const a = Math.abs(n);
+  if (a >= 1) return n.toFixed(4);
+  return plainDecimal(n, a);
 }
 
 export function fmtUsd(n: number | null | undefined): string {
