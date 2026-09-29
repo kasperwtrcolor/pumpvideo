@@ -59,6 +59,8 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
   const [dest, setDest] = useState("");
   const [amount, setAmount] = useState("");
   const [lastSig, setLastSig] = useState<string | null>(null);
+  /** Own sign-out confirmation. Privy's own modal is unreliable on small screens. */
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const wallet = wallets[0] ?? null;
   const address = wallet?.address ?? trader?.walletAddress ?? null;
@@ -213,7 +215,8 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
         : "Email";
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm">
+    <>
+      <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm">
       <button aria-label="Close" className="absolute inset-0" onClick={onClose} />
       <div className="sheet-up relative flex max-h-[88dvh] w-full max-w-[440px] flex-col overflow-y-auto rounded-t-3xl border-t border-line bg-panel p-4 pb-8">
         <div className="mb-3 flex items-center justify-between">
@@ -344,7 +347,7 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
             </div>
 
             <button
-              onClick={() => void doLogout()}
+              onClick={() => setConfirmLogout(true)}
               disabled={busy}
               className="mt-3 w-full rounded-xl border border-line py-2 text-[11px] font-semibold text-down hover:border-down disabled:opacity-50"
             >
@@ -500,7 +503,50 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
             {user ? " It may still be being created — reopen in a moment." : ""}
           </div>
         )}
+        </div>
       </div>
-    </div>
+
+      {confirmLogout && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="signout-title"
+          className="fixed inset-0 z-[80] grid place-items-center bg-black/80 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
+        >
+          <button
+            aria-label="Cancel"
+            className="absolute inset-0"
+            onClick={() => setConfirmLogout(false)}
+          />
+          <div className="relative w-full max-w-sm rounded-2xl border border-line bg-panel p-5 text-center">
+            <h2 id="signout-title" className="text-base font-bold tracking-tight">
+              Sign out?
+            </h2>
+            <p className="mt-2 text-[12px] leading-relaxed text-muted">
+              You can log back in any time. Your wallet and its funds stay attached to your
+              account.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setConfirmLogout(false)}
+                className="flex-1 rounded-xl border border-line bg-panel2 py-2.5 text-[12px] font-bold hover:border-accent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmLogout(false);
+                  void doLogout();
+                }}
+                disabled={busy}
+                className="flex-1 rounded-xl border border-down py-2.5 text-[12px] font-bold text-down hover:bg-down/10 disabled:opacity-50"
+              >
+                {busy ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
