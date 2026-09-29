@@ -118,7 +118,16 @@ async function main() {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mint, side: "BUY", solAmount: 0.5 }),
   });
-  check("POST /api/trade no longer exists", gone.status === 404 || gone.status === 405, `${gone.status}`);
+  // Next serves unmatched paths through its not-found handler, which can answer
+  // 200 with an HTML body rather than a 404 — so a bare status check reads as a
+  // false failure. The routing signal is x-matched-path: /_not-found.
+  const matched = gone.headers.get("x-matched-path") ?? "";
+  const isNotFound = matched === "/_not-found" || gone.status === 404 || gone.status === 405;
+  check(
+    "POST /api/trade no longer exists",
+    isNotFound,
+    `${gone.status}${matched ? ` (x-matched-path: ${matched})` : ""}`,
+  );
 
   console.log("\nengagement is real and login-gated");
   const like = await fetch(`${BASE}/api/clips/${clipId}/like`, {
