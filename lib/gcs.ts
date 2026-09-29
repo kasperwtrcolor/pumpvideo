@@ -248,7 +248,21 @@ export async function accessToken(): Promise<string> {
  * the upload before a byte leaves the page — the failure looks like a network
  * error in devtools and is easy to misdiagnose. Deliberately only our origins,
  * never `*`: the bucket is the thing holding user uploads.
+ *
+ * `responseHeader` is doing double duty here, and that is not a mistake. It
+ * reads like "headers the browser may expose to JS" (Access-Control-Expose-
+ * Headers), but GCS *also* uses it as the allowlist for
+ * Access-Control-Allow-Headers on the preflight. A request header that is not
+ * in this list makes GCS drop every CORS header from the preflight response,
+ * so the browser refuses to send the PUT at all — with a perfectly valid
+ * signature and a 200 from GCS every time you test it with curl.
+ *
+ * That is why `x-goog-meta-firebasestoragedownloadtokens` has to be listed: we
+ * sign the upload with that header (it is how the clip gets its permanent
+ * download token). Omit it and uploads fail in the browser and nowhere else.
  */
+export const UPLOAD_META_HEADER = "x-goog-meta-firebasestoragedownloadtokens";
+
 export async function setBucketCors(
   origins: string[],
 ): Promise<{ ok: boolean; detail?: string }> {
@@ -264,7 +278,7 @@ export async function setBucketCors(
           {
             origin: origins,
             method: ["PUT", "POST", "GET", "HEAD", "OPTIONS"],
-            responseHeader: ["Content-Type", "Content-Length", "ETag", "Range"],
+            responseHeader: ["Content-Type", "Content-Length", "ETag", "Range", UPLOAD_META_HEADER],
             maxAgeSeconds: 3600,
           },
         ],
