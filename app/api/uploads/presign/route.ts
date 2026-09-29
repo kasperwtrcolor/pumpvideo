@@ -32,16 +32,19 @@ const Body = z.object({
  * read back from storage.
  */
 export async function POST(req: NextRequest) {
+  // Auth runs first so an anonymous caller always gets 401 and cannot probe
+  // whether this deployment has storage configured. Storage depends on nothing
+  // about the caller, so this ordering costs nothing.
+  const auth = await requireTrader(req);
+  if ("response" in auth) return auth.response;
+  const { trader } = auth;
+
   if (!storageConfigured()) {
     return NextResponse.json(
       { error: "STORAGE_NOT_CONFIGURED", detail: "video uploads are not configured on this deployment" },
       { status: 503 },
     );
   }
-
-  const auth = await requireTrader(req);
-  if ("response" in auth) return auth.response;
-  const { trader } = auth;
 
   const limit = rateLimit(`presign:${clientKey(req)}`, 10, 60_000);
   if (!limit.ok) {

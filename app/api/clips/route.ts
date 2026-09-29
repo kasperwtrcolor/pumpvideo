@@ -59,13 +59,15 @@ async function measureObject(object: string): Promise<number | null> {
  * buy made through it.
  */
 export async function POST(req: NextRequest) {
-  if (!storageConfigured()) {
-    return NextResponse.json({ error: "STORAGE_NOT_CONFIGURED" }, { status: 503 });
-  }
-
+  // Auth first: an anonymous caller gets a uniform 401 and cannot probe whether
+  // storage is configured on this deployment.
   const auth = await requireTrader(req);
   if ("response" in auth) return auth.response;
   const { trader } = auth;
+
+  if (!storageConfigured()) {
+    return NextResponse.json({ error: "STORAGE_NOT_CONFIGURED" }, { status: 503 });
+  }
 
   const limit = rateLimit(`clipcreate:${clientKey(req)}`, 6, 60_000);
   if (!limit.ok) {
