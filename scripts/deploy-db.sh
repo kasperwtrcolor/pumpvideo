@@ -28,16 +28,24 @@ fi
 export DATABASE_URL="${PROD_DATABASE_URL}"
 export DIRECT_URL="${PROD_DIRECT_URL}"
 
-echo "==> 1/3  applying migrations (direct connection)"
+echo "==> 1/4  applying migrations (direct connection)"
 npx prisma migrate deploy
 
-echo "==> 2/3  verifying schema"
+echo "==> 2/4  verifying schema"
 npx prisma migrate status
 
-echo "==> 3/3  seeding coins from pump.fun"
+echo "==> 3/4  seeding coins from pump.fun"
 # Idempotent: ingest upserts by mint, so re-running refreshes rather than duplicates.
 npm run ingest -- --top 40 --new 40
 
+echo "==> 4/4  marking clips ready"
+# REQUIRED, and easy to forget: Clip.ready defaults to FALSE, and /api/feed only
+# serves ready:true. Ingest alone leaves every clip invisible, so the feed comes
+# back empty while /api/stats happily reports the full coin count.
+# The mp4s are committed to the repo, so this hits gen-clips' fast path (asset
+# already on disk -> just flip ready) and does no re-encoding.
+npm run clips -- --limit 200
+
 echo
-echo "OK — remote DB is migrated and seeded."
-echo "Clips are already committed to the repo, so no media step is needed."
+echo "OK — remote DB is migrated, seeded, and serving clips."
+echo "Clips are committed to the repo, so no media upload step is needed."

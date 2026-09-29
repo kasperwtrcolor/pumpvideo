@@ -38,21 +38,56 @@ type Sort =
   | "ath_market_cap"
   | "reply_count";
 
+/**
+ * GET the ranked coin list, with retry.
+ *
+ * pump.fun rate-limits this endpoint aggressively and intermittently — in
+ * testing roughly half of all pages came back 429 even with 300ms between
+ * requests. Callers that treat a 429 as "no more data" end up silently
+ * returning nothing, which is exactly how the market keeper reported
+ * `updated: 0` while looking perfectly healthy.
+ *
+ * Retries on 429/5xx with exponential backoff + jitter, and throws only when it
+ * has genuinely given up, so the failure is visible to the caller.
+ */
 export async function fetchCoins(opts: {
   limit?: number;
   offset?: number;
   sort?: Sort;
   order?: "ASC" | "DESC";
+  attempts?: number;
 } = {}): Promise<PumpCoin[]> {
-  const { limit = 48, offset = 0, sort = "market_cap", order = "DESC" } = opts;
+  const { limit = 48, offset = 0, sort = "market_cap", order = "DESC", attempts = 4 } = opts;
   const url = `${FEED_API}/coins?offset=${offset}&limit=${limit}&sort=${sort}&order=${order}&includeNsfw=false`;
 
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`pump.fun ${res.status}: ${await res.text()}`);
-  return (await res.json()) as PumpCoin[];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) {
+      // 600ms, 1.2s, 2.4s ... plus up to 400ms jitter so parallel sweeps don't
+      // re-collide on the same retry boundary.
+      await sleep(600 * 2 ** (attempt - 1) + Math.random() * 400);
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        cache: "no-store",
+      });
+    } catch (e) {
+      lastErr = e;
+      continue; // network blip — worth another go
+    }
+
+    if (res.ok) return (await res.json()) as PumpCoin[];
+
+    const body = await res.text().catch(() => "");
+    lastErr = new Error(`pump.fun ${res.status}: ${body.slice(0, 120)}`);
+
+    // 429 and 5xx are transient. Anything else (404, 403) is permanent — don't
+    // burn attempts on it.
+    if (res.status !== 429 && res.status < 500) throw lastErr;
+  }
+  throw lastErr;
 }
 
 /**
@@ -80,9 +115,14 @@ export async function fetchCoin(mint: string): Promise<PumpCoin | null> {
  */
 export async function fetchCoinsByMints(
   mints: string[],
-  opts: { pages?: number; pageSize?: number } = {},
+  // `errors` is an out-param: pass an array and it collects per-page failures,
+  // so callers can distinguish "coin isn't ranked" from "we were rate-limited".
+  opts: { pages?: number; pageSize?: number; errors?: string[] } = {},
 ): Promise<Map<string, PumpCoin>> {
-  const { pages = 4, pageSize = 50 } = opts;
+  // 10 pages x 50 x 2 sorts = up to 1000 coins swept. pump.fun launches
+  // thousands of coins a day, so anything shallower loses low-cap coins within
+  // hours and the keeper silently reports `updated: 0`.
+  const { pages = 10, pageSize = 50, errors = [] } = opts;
   const want = new Set(mints);
   const found = new Map<string, PumpCoin>();
   if (want.size === 0) return found;
@@ -94,7 +134,12 @@ export async function fetchCoinsByMints(
       let batch: PumpCoin[];
       try {
         batch = await fetchCoins({ limit: pageSize, offset: p * pageSize, sort });
-      } catch {
+      } catch (e) {
+        // Do NOT silently break. A rate-limited page used to abort the whole
+        // sweep and surface as a clean `updated: 0`, which reads like "nothing
+        // changed" rather than "we never looked". Record it and move on; if the
+        // ranking is genuinely exhausted, batch.length < pageSize handles it.
+        errors.push(`${sort}@${p * pageSize}: ${(e as Error).message}`);
         break;
       }
       for (const c of batch) {
@@ -102,7 +147,7 @@ export async function fetchCoinsByMints(
       }
       if (batch.length < pageSize) break; // ranking exhausted
       if (found.size === want.size) return found;
-      await sleep(120); // be a good citizen between pages
+      await sleep(350); // pump.fun 429s readily; stay under the limiter
     }
     if (found.size === want.size) break;
   }
