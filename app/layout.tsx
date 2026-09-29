@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { TopNav } from "@/components/TopNav";
+import { AppHeader } from "@/components/AppHeader";
+import { BottomNav } from "@/components/BottomNav";
 import { TraderProvider } from "@/components/TraderProvider";
 import { PrivyRoot } from "@/components/PrivyRoot";
 import { AuthBridge } from "@/components/AuthBridge";
@@ -28,6 +29,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // Lets env(safe-area-inset-*) report real values on iOS, so the bottom bar
+  // clears the home indicator and the header clears the notch.
+  viewportFit: "cover",
   themeColor: "#08080A",
 };
 
@@ -44,8 +48,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <TraderProvider initialSolUsd={usd}>
               <PrivySessionSync />
               <div className="mx-auto flex h-dvh w-full max-w-[440px] flex-col border-x border-line bg-bg">
-                <TopNav />
+                <AppHeader />
                 <div className="min-h-0 flex-1">{children}</div>
+                <BottomNav />
               </div>
             </TraderProvider>
           </AuthBridge>

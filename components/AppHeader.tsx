@@ -1,23 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTrader } from "./TraderProvider";
-import { AccountButton } from "./AccountButton";
 import { LogoLockup } from "./Logo";
 import { fmtSol } from "@/lib/format";
 
-// Portfolio was folded into /account, which the account button already opens —
-// so the nav carries one fewer tab.
-const TABS = [
-  { href: "/", label: "Feed" },
-  { href: "/coins", label: "Coins" },
-  { href: "/upload", label: "Upload" },
-];
-
-export function TopNav() {
-  const path = usePathname();
+/**
+ * Slim app header: brand on the left, live wallet balance on the right.
+ *
+ * Navigation moved to the bottom bar, so there are no tabs or account button up
+ * here any more — this is just identity and at-a-glance balance.
+ */
+export function AppHeader() {
   const { trader, refresh } = useTrader();
   const [walletSol, setWalletSol] = useState<number | null>(null);
 
@@ -47,34 +42,15 @@ export function TopNav() {
   }, [addr, refresh]);
 
   return (
-    <header className="z-50 flex shrink-0 items-center gap-2 border-b border-line bg-bg/90 px-2.5 py-2 backdrop-blur">
-      <Link href="/" className="shrink-0">
+    <header className="z-50 flex shrink-0 items-center gap-2 border-b border-line bg-bg/90 px-3 pt-[env(safe-area-inset-top)] pb-2 backdrop-blur">
+      <Link href="/" className="shrink-0 py-1" aria-label="PumpClip — feed">
         <LogoLockup />
       </Link>
-
-      <nav className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto">
-        {TABS.map((t) => {
-          const active = t.href === "/" ? path === "/" : path.startsWith(t.href);
-          return (
-            <Link
-              key={t.href}
-              href={t.href}
-              className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                active
-                  ? "bg-panel2 text-ink"
-                  : "text-muted hover:bg-panel2/60 hover:text-ink"
-              }`}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {addr && (
           <div
-            className="flex items-center gap-1.5 rounded-full border border-line bg-panel2 px-2 py-1"
+            className="flex items-center gap-1.5 rounded-full border border-line bg-panel2 px-2.5 py-1"
             title="Your wallet balance, read live from Solana"
           >
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent pulse-dot" />
@@ -84,7 +60,6 @@ export function TopNav() {
             </span>
           </div>
         )}
-        <AccountButton />
       </div>
     </header>
   );
