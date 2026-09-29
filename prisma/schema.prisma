@@ -7,7 +7,7 @@
 // by migrations which cannot run through a transaction pooler.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -19,37 +19,37 @@ datasource db {
 
 /// A tradable coin. Mirrors the real pump.fun market record so we never invent prices.
 model Coin {
-  id           String   @id @default(cuid())
-  mint         String   @unique // SPL mint address
-  provider     String   @default("PUMPFUN")
-  name         String
-  symbol       String
-  description  String?
-  imageUrl     String?
+  id          String  @id @default(cuid())
+  mint        String  @unique // SPL mint address
+  provider    String  @default("PUMPFUN")
+  name        String
+  symbol      String
+  description String?
+  imageUrl    String?
 
   // live market state (raw integer strings — bigint-safe)
-  virtualSol    String @default("0") // lamports
-  virtualToken  String @default("0") // raw token units
-  realSol       String @default("0")
-  totalSupply   String @default("0")
+  virtualSol   String @default("0") // lamports
+  virtualToken String @default("0") // raw token units
+  realSol      String @default("0")
+  totalSupply  String @default("0")
 
-  priceSol      Float  @default(0) // SOL per whole token
-  marketCapSol  Float  @default(0)
-  change24hPct  Float  @default(0)
-  holders       Int    @default(0)
-  volume24hSol  Float  @default(0)
+  priceSol     Float @default(0) // SOL per whole token
+  marketCapSol Float @default(0)
+  change24hPct Float @default(0)
+  holders      Int   @default(0)
+  volume24hSol Float @default(0)
 
-  complete      Boolean @default(false) // bonding curve filled -> graduated to AMM
-  isBanned      Boolean @default(false) // pump.fun moderation flag; hide from feed
-  poolAddress   String?
-  creator       String?
-  twitter       String?
-  telegram      String?
-  website       String?
+  complete    Boolean @default(false) // bonding curve filled -> graduated to AMM
+  isBanned    Boolean @default(false) // pump.fun moderation flag; hide from feed
+  poolAddress String?
+  creator     String?
+  twitter     String?
+  telegram    String?
+  website     String?
 
-  launchedAt    DateTime?
-  lastSyncedAt  DateTime @default(now())
-  createdAt     DateTime @default(now())
+  launchedAt   DateTime?
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   clips     Clip[]
   positions Position[]
@@ -62,111 +62,176 @@ model Coin {
 /// Price history. Written by the market keeper on every sync; powers the
 /// 24h change chip today and a sparkline/chart later.
 model PricePoint {
-  id        String   @id @default(cuid())
-  coinId    String
-  coin      Coin     @relation(fields: [coinId], references: [id], onDelete: Cascade)
-  priceSol  Float
+  id           String   @id @default(cuid())
+  coinId       String
+  coin         Coin     @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  priceSol     Float
   marketCapSol Float
-  at        DateTime @default(now())
+  at           DateTime @default(now())
 
   @@index([coinId, at])
 }
 
 /// A short vertical clip. One clip = one front door into a coin.
-/// `source` lets us swap the seed/manual pipeline for a real TikTok ingester later.
+///
+/// `source` distinguishes our seeded catalogue from clips a user uploaded and
+/// bound to a token address. Uploaded clips carry `creatorWallet`, which is what
+/// the 1% creator fee is paid to on every buy made through this clip.
 model Clip {
-  id        String   @id @default(cuid())
-  coinId    String
-  coin      Coin     @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  coinId   String
+  coin     Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
 
-  source    String   @default("SEED") // SEED | UPLOAD | TIKTOK
-  videoUrl  String   // /clips/<mint>.mp4 or an HLS manifest
-  thumbUrl  String?
+  source   String  @default("SEED") // SEED | UPLOAD
+  videoUrl String // absolute R2 URL, or /clips/<mint>.mp4 for seeded clips
+  thumbUrl String?
   /// Set by the transcoder once the asset actually exists. The feed only serves
   /// ready clips, so a queued-but-unrendered clip never ships a broken <video>.
-  ready     Boolean  @default(false)
-  caption   String?
-  author    String?  @default("unclaimed")
+  ready    Boolean @default(false)
+  caption  String?
+  author   String? @default("unclaimed")
 
-  likes     Int      @default(0)
-  shares    Int      @default(0)
-  comments  Int      @default(0)
-  views     Int      @default(0)
-  rank      Float    @default(0) // feed ordering score
+  /// Solana wallet paid the 1% creator fee. Null for seeded clips (fee then
+  /// falls through to the treasury, so a buy is never silently free).
+  creatorWallet String?
+  /// Trader row that uploaded this clip (null for seeded clips).
+  uploadedById  String?
+  uploadedBy    Trader? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  /// Denormalised counters, kept in sync with the Clip* rows below. Denormalising
+  /// is what lets the feed sort and render without an aggregate per item.
+  likes    Int @default(0)
+  shares   Int @default(0)
+  comments Int @default(0)
+  views    Int @default(0)
+  rank     Float @default(0) // feed ordering score
 
   createdAt DateTime @default(now())
 
+  likeRows    ClipLike[]
+  commentRows ClipComment[]
+  shareRows   ClipShare[]
+
   @@index([coinId])
   @@index([rank])
+  @@index([ready, rank])
 }
 
-/// A viewer. Anonymous until they log in or connect a Solana wallet.
-/// Every trader gets a paper account so the app is usable with zero wallet (PumpClip's "practice mode").
+/// A viewer. Created anonymously on first request so a clip can be viewed with
+/// no login at all; a Privy identity is bound on login.
 ///
 /// Identity has two layers:
 ///   1. `handle` — an unguessable random string mirrored into an httpOnly cookie.
-///      This is what makes practice mode work with no login at all.
+///      This is what makes an anonymous visit work with no login.
 ///   2. `privyDid` — set once the visitor logs in with Privy (email / Google / X).
-///      An anonymous trader is *adopted* at that moment, so practice balances and
-///      positions survive the upgrade to a real account.
+///      The anonymous row is *adopted* at that moment, so anything they did while
+///      anonymous (likes, comments, uploads) survives the upgrade.
 model Trader {
-  id                String   @id @default(cuid())
-  handle            String   @unique // cookie/session identity, e.g. "anon-8f3a2c…"
-  walletAddress     String?  @unique // the account's Solana wallet (embedded or linked)
-  displayName       String?
-  avatarUrl         String?
+  id            String  @id @default(cuid())
+  handle        String  @unique // cookie/session identity, e.g. "anon-8f3a2c…"
+  walletAddress String? @unique // the account's Solana wallet (embedded or linked)
+  displayName   String?
+  avatarUrl     String?
 
-  // --- Privy identity. All null for a pure anonymous practice user. ---
-  privyDid          String?  @unique // "did:privy:…"
-  email             String?
-  loginMethod       String? // EMAIL | GOOGLE | TWITTER
-  walletId          String? // Privy wallet id backing `walletAddress`
+  // --- Privy identity. All null for a pure anonymous viewer. ---
+  privyDid    String? @unique // "did:privy:…"
+  email       String?
+  loginMethod String? // EMAIL | GOOGLE | TWITTER
+  walletId    String? // Privy wallet id backing `walletAddress`
 
-  practiceBalance   Float    @default(100) // SOL of play money
-  practiceStartBal  Float    @default(100)
+  createdAt DateTime @default(now())
 
-  createdAt         DateTime @default(now())
-  positions         Position[]
-  trades            Trade[]
+  positions Position[]
+  trades    Trade[]
+  clips     Clip[]
+  likes     ClipLike[]
+  comments  ClipComment[]
+  shares    ClipShare[]
 
   @@index([privyDid])
 }
 
-/// Current holding per coin, per trader.
+/// Current holding per coin, per trader — a mirror of what the wallet holds.
+/// Live fills update this from the on-chain balance delta so the portfolio can
+/// render without one RPC call per position.
 model Position {
-  id         String @id @default(cuid())
-  traderId   String
-  trader     Trader @relation(fields: [traderId], references: [id], onDelete: Cascade)
-  coinId     String
-  coin       Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  traderId String
+  trader   Trader @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  coinId   String
+  coin     Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
 
   tokenAmount String // raw token units held
   costSol     Float  @default(0) // total SOL spent (for PnL)
   realizedSol Float  @default(0)
 
-  updatedAt  DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@unique([traderId, coinId])
 }
 
-/// Immutable trade log. `mode` makes practice vs live auditable in one table.
+/// Immutable trade log. Every row is a real on-chain fill; `txSig` is the
+/// signature verified against the chain before the row was written.
 model Trade {
-  id          String   @id @default(cuid())
-  traderId    String
-  trader      Trader   @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  traderId String
+  trader   Trader @relation(fields: [traderId], references: [id], onDelete: Cascade)
 
-  coinMint    String
-  symbol      String
-  side        String   // BUY | SELL
-  mode        String   @default("PRACTICE") // PRACTICE | LIVE
+  coinMint String
+  symbol   String
+  side     String // BUY | SELL
+  mode     String @default("LIVE")
 
-  solAmount     Float
-  tokenAmount   String
-  priceSol      Float
-  feeSol        Float  @default(0)
-  txSig         String? // set for LIVE fills
+  solAmount   Float
+  tokenAmount String
+  priceSol    Float
+  /// total in-app fee charged in SOL (creator + treasury), for accounting
+  feeSol      Float  @default(0)
+  txSig       String? // the on-chain transaction signature
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([traderId, createdAt])
+  @@index([coinMint, createdAt])
+}
+
+/// One like per trader per clip. The unique key is what makes the toggle
+/// idempotent — double taps can't inflate the count.
+model ClipLike {
+  id        String   @id @default(cuid())
+  clipId    String
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  traderId  String
+  trader    Trader   @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([clipId, traderId])
+  @@index([clipId])
+}
+
+/// A comment. Login is required to write one, which is why `traderId` is not
+/// optional — there is no "anonymous comment" row.
+model ClipComment {
+  id        String   @id @default(cuid())
+  clipId    String
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  traderId  String
+  trader    Trader   @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([clipId, createdAt])
+}
+
+/// A share event. No unique key — sharing the same clip twice is legitimate and
+/// counts twice, unlike a like.
+model ClipShare {
+  id        String   @id @default(cuid())
+  clipId    String
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  traderId  String?
+  trader    Trader?  @relation(fields: [traderId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([clipId])
 }

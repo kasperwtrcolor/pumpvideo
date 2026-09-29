@@ -86,7 +86,7 @@ async function main() {
   console.log("\nfeed");
   const feedRes = await fetch(`${BASE}/api/feed?limit=3`);
   const feed = (await feedRes.json()) as {
-    items: { coin: { mint: string; symbol: string }; videoUrl: string }[];
+    items: { id: string; coin: { mint: string; symbol: string }; videoUrl: string }[];
     total: number;
   };
   check("feed returns items", feed.items.length > 0, `${feed.total} clips`);
@@ -97,7 +97,6 @@ async function main() {
     check("clip asset is served", vid.ok, `${vid.status} ${vid.headers.get("content-type")}`);
   }
 
-  console.log("\npractice round-trip");
   const jar = new Map<string, string>();
   const remember = (r: Response) => {
     for (const c of r.headers.getSetCookie?.() ?? []) {
@@ -109,58 +108,49 @@ async function main() {
   const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
 
   const mint = feed.items[0].coin.mint;
-  const buy = await fetch(`${BASE}/api/trade`, {
+  const clipId = feed.items[0].id;
+
+  console.log("\npractice trading is gone");
+  // The simulated engine was removed. This route must not exist at all — a
+  // remnant would let someone "fill" a trade that never touched the chain.
+  const gone = await fetch(`${BASE}/api/trade`, {
     method: "POST",
-    headers: { "content-type": "application/json", cookie: cookie() },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ mint, side: "BUY", solAmount: 0.5 }),
   });
-  remember(buy);
-  const buyBody = (await buy.json()) as {
-    ok?: boolean;
-    tokensOut?: number;
-    trader?: { practiceBalance: number };
-  };
-  check("BUY succeeds", buyBody.ok === true, `${buyBody.tokensOut?.toFixed(0)} tokens`);
-  check(
-    "balance decremented",
-    buyBody.trader?.practiceBalance === 99.5,
-    `bal=${buyBody.trader?.practiceBalance}`,
-  );
+  check("POST /api/trade no longer exists", gone.status === 404 || gone.status === 405, `${gone.status}`);
 
-  const sell = await fetch(`${BASE}/api/trade`, {
+  console.log("\nengagement is real and login-gated");
+  const like = await fetch(`${BASE}/api/clips/${clipId}/like`, {
+    method: "POST",
+    headers: { cookie: cookie() },
+  });
+  check("like without a session is rejected", like.status === 401, `${like.status}`);
+
+  const commentPost = await fetch(`${BASE}/api/clips/${clipId}/comments`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie: cookie() },
-    body: JSON.stringify({ mint, side: "SELL", fraction: 1 }),
+    body: JSON.stringify({ body: "gm" }),
   });
-  remember(sell);
-  const sellBody = (await sell.json()) as {
-    ok?: boolean;
-    solOut?: number;
-    trader?: { practiceBalance: number };
-  };
-  check("SELL succeeds", sellBody.ok === true, `${sellBody.solOut?.toFixed(6)} SOL out`);
-  // Round trip must cost ~2% (1% each way). Bigger means the curve is wrong.
-  const cost = 0.5 - (sellBody.solOut ?? 0);
+  check("comment without a session is rejected", commentPost.status === 401, `${commentPost.status}`);
+
+  const commentList = await fetch(`${BASE}/api/clips/${clipId}/comments`);
+  const commentBody = (await commentList.json()) as { comments?: unknown[] };
   check(
-    "round-trip cost is ~2% (fee both ways)",
-    cost > 0 && cost < 0.5 * 0.04,
-    `lost ${cost.toFixed(6)} SOL (${((cost / 0.5) * 100).toFixed(2)}%)`,
+    "comments list is publicly readable",
+    commentList.ok && Array.isArray(commentBody.comments),
+    `${commentBody.comments?.length ?? "?"} comments`,
   );
+
+  console.log("\nuploads are login-gated");
+  const presign = await fetch(`${BASE}/api/uploads/presign`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: cookie() },
+    body: JSON.stringify({ contentType: "video/mp4", sizeBytes: 1024 * 1024 }),
+  });
+  check("upload presign without a session is rejected", presign.status === 401, `${presign.status}`);
 
   console.log("\nlive trading boundary");
-  // /api/trade writes practice rows straight to the DB. A LIVE request must be
-  // turned away here with no transaction ever appearing in the response.
-  const live = await fetch(`${BASE}/api/trade`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: cookie() },
-    body: JSON.stringify({ mint, side: "BUY", solAmount: 1, mode: "LIVE" }),
-  });
-  const liveBody = (await live.json()) as { error?: string; txSig?: string; signature?: string };
-  check(
-    "POST /api/trade with LIVE never hands back a signature",
-    live.status === 400 && !liveBody.txSig && !liveBody.signature,
-    `${live.status} ${liveBody.error ?? ""}`,
-  );
 
   // The real live path exists, and is closed to anonymous callers.
   const prep = await fetch(`${BASE}/api/trade/live/prepare`, {

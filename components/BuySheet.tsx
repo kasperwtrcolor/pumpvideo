@@ -1,18 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { CoinAvatar } from "./CoinAvatar";
-import { quoteBuy, quoteSell, solToLamports, uiTokensToRaw } from "@/lib/bonding-curve";
 import { fmtPrice, fmtSol, fmtPct, sym } from "@/lib/format";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { getBase58Decoder } from "@solana/kit";
 
-type Mode = "PRACTICE" | "LIVE";
-
 /** What /api/trade/live/prepare hands back for the review step. */
+type FeeReport = {
+  treasurySol: number;
+  creatorSol: number;
+  creatorWallet: string | null;
+  totalSol: number;
+};
+
 type LiveQuote = {
   transaction: string;
   side: "BUY" | "SELL";
@@ -24,6 +28,7 @@ type LiveQuote = {
   expectedSol?: number;
   minSol?: number;
   solIn?: number;
+  fees?: FeeReport;
 };
 
 function b64ToBytes(b64: string): Uint8Array {
@@ -36,22 +41,26 @@ function b64ToBytes(b64: string): Uint8Array {
 /**
  * The trade sheet.
  *
- * PRACTICE quotes client-side with the same constant-product curve the server
- * uses, so what you see before tapping is what you get after tapping — the
- * server re-quotes inside a transaction and is the source of truth.
+ * There is one mode: LIVE. Every fill is a real on-chain swap, quoted by
+ * Jupiter, signed by the viewer's own wallet, and verified against the chain
+ * before it is recorded. Nothing is simulated and no balance is invented — if
+ * there is no wallet there is no trade, which is why a logged-out viewer gets a
+ * prompt instead of a button.
  *
- * LIVE never fills from a local estimate. Tapping buy/sell asks the server for
- * a real Jupiter swap, shows you the actual quote (expected out, minimum out,
- * price impact, route), and only then signs it with the embedded wallet and
- * posts the signature back for on-chain verification.
+ * A buy also carries the in-app fee: 1% to the clip's creator and 2% to the
+ * treasury vault, appended to the swap as SOL transfers so they settle with it
+ * or not at all. The review step shows exactly what they cost.
  */
 export function BuySheet({
   coin,
+  clipId,
   open,
   onClose,
   onFilled,
 }: {
   coin: CoinDTO;
+  /** The clip the buyer came through — decides which creator earns the 1%. */
+  clipId?: string;
   open: boolean;
   onClose: () => void;
   onFilled: (next: { priceSol: number }) => void;
@@ -61,34 +70,21 @@ export function BuySheet({
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
 
-  const [mode, setMode] = useState<Mode>("PRACTICE");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [solAmount, setSolAmount] = useState(0.25);
   const [fraction, setFraction] = useState(1);
-  const [held, setHeld] = useState(0);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [liveQuote, setLiveQuote] = useState<LiveQuote | null>(null);
   const [liveSol, setLiveSol] = useState<number | null>(null);
   const [liveHeld, setLiveHeld] = useState<number | null>(null);
 
-  const liveAvailable = trader?.mode === "LIVE" && Boolean(trader?.loggedIn);
   const wallet = wallets[0] ?? null;
+  const canTrade = trader?.canTrade !== false;
 
-  // Load this trader's practice position whenever the sheet opens.
+  // Real balances only. These are read from chain, never from a local estimate.
   useEffect(() => {
-    if (!open) return;
-    setResult(null);
-    setLiveQuote(null);
-    fetch(`/api/coins/${coin.mint}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setHeld(j?.position?.tokens ?? 0))
-      .catch(() => setHeld(0));
-  }, [open, coin.mint, result]);
-
-  // On-chain balances, only when live mode is actually in play.
-  useEffect(() => {
-    if (!open || mode !== "LIVE" || !wallet?.address) return;
+    if (!open || !wallet?.address) return;
     fetch(
       `/api/wallet/balance?address=${encodeURIComponent(wallet.address)}&mint=${encodeURIComponent(coin.mint)}`,
       { cache: "no-store" },
@@ -99,36 +95,7 @@ export function BuySheet({
         if (Number.isFinite(j.tokens)) setLiveHeld(j.tokens);
       })
       .catch(() => {});
-  }, [open, mode, wallet?.address, coin.mint, result]);
-
-  const vSol = BigInt(coin.virtualSol);
-  const vTok = BigInt(coin.virtualToken);
-
-  // Curve estimate — practice only. Live gets its numbers from Jupiter.
-  const preview = useMemo(() => {
-    try {
-      if (side === "BUY") {
-        const f = quoteBuy(vSol, vTok, solToLamports(solAmount));
-        return {
-          out: Number(f.tokenAmount) / 1e6,
-          fee: Number(f.feeSol) / 1e9,
-          slip: f.slippagePct,
-          price: f.priceSol,
-        };
-      }
-      const raw = uiTokensToRaw(held * fraction);
-      if (raw <= 0n) return null;
-      const f = quoteSell(vSol, vTok, raw);
-      return {
-        out: Number(f.solAmount) / 1e9,
-        fee: Number(f.feeSol) / 1e9,
-        slip: f.slippagePct,
-        price: f.priceSol,
-      };
-    } catch {
-      return null;
-    }
-  }, [side, solAmount, fraction, held, vSol, vTok]);
+  }, [open, wallet?.address, coin.mint, result]);
 
   const close = useCallback(() => {
     setLiveQuote(null);
@@ -136,10 +103,10 @@ export function BuySheet({
     onClose();
   }, [onClose]);
 
-  /** Step 1 of the live flow: ask the server for an unsigned swap. */
+  /** Step 1: ask the server for an unsigned swap. */
   const requestLiveQuote = useCallback(async () => {
     if (!wallet) {
-      toast("Log in to trade live", "bad");
+      toast("Log in to trade", "bad");
       return;
     }
     setBusy(true);
@@ -150,7 +117,7 @@ export function BuySheet({
 
       const body =
         side === "BUY"
-          ? { mint: coin.mint, side, solAmount }
+          ? { mint: coin.mint, side, solAmount, clipId }
           : { mint: coin.mint, side, fraction };
 
       const r = await fetch("/api/trade/live/prepare", {
@@ -168,7 +135,7 @@ export function BuySheet({
     } finally {
       setBusy(false);
     }
-  }, [wallet, getAccessToken, side, coin.mint, solAmount, fraction, toast]);
+  }, [wallet, getAccessToken, side, coin.mint, solAmount, fraction, clipId, toast]);
 
   /** Steps 2 and 3: sign locally, then have the server verify it on chain. */
   const signAndConfirm = useCallback(async () => {
@@ -191,7 +158,7 @@ export function BuySheet({
       const r = await fetch("/api/trade/live/confirm", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ mint: coin.mint, side: liveQuote.side, signature }),
+        body: JSON.stringify({ mint: coin.mint, side: liveQuote.side, signature, clipId }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.detail || j.error || "could not verify the trade");
@@ -221,63 +188,22 @@ export function BuySheet({
     coin.mint,
     coin.symbol,
     coin.priceSol,
+    clipId,
     onFilled,
     refresh,
     close,
     toast,
   ]);
 
-  async function submitPractice() {
-    setBusy(true);
-    setResult(null);
-    try {
-      const body =
-        side === "BUY"
-          ? { mint: coin.mint, side, solAmount, mode: "PRACTICE" }
-          : { mint: coin.mint, side, fraction, mode: "PRACTICE" };
-
-      const r = await fetch("/api/trade", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.detail || j.error || "trade rejected");
-
-      const msg =
-        side === "BUY"
-          ? `bought ${fmtSol(j.tokensOut)} $${sym(j.symbol)} · ${solAmount} SOL in`
-          : `sold ${fmtSol(j.tokensIn)} $${sym(j.symbol)} · ${fmtSol(j.solOut)} SOL out`;
-      setResult(msg);
-      toast(msg, "ok");
-      onFilled({ priceSol: j.priceSol });
-      void refresh();
-      setTimeout(close, 550);
-    } catch (e) {
-      const m = (e as Error).message;
-      setResult(m);
-      toast(m, "bad");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (!open) return null;
 
-  const practiceBalance = trader?.practiceBalance ?? 0;
-  // Graduated coins left the curve, but Jupiter still routes them through the
-  // Pump.fun AMM — so live trading stays open where practice cannot.
-  const curveClosed = coin.complete;
-  const heldForSell = mode === "LIVE" ? (liveHeld ?? 0) : held;
-
+  const heldForSell = liveHeld ?? 0;
   const disabled =
     busy ||
-    (mode === "PRACTICE" && curveClosed) ||
-    (side === "BUY"
-      ? solAmount <= 0 || (mode === "PRACTICE" && solAmount > practiceBalance)
-      : heldForSell <= 0 || fraction <= 0);
-
+    !canTrade ||
+    (side === "BUY" ? solAmount <= 0 : heldForSell <= 0 || fraction <= 0);
   const reviewing = liveQuote !== null;
+  const fees = liveQuote?.fees;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center">
@@ -305,51 +231,18 @@ export function BuySheet({
             </div>
           </div>
           <div className="ml-auto text-right">
-            {mode === "PRACTICE" ? (
-              <>
-                <div className="text-[10px] uppercase tracking-wider text-muted">practice bal</div>
-                <div className="text-sm font-bold tabular-nums">{fmtSol(practiceBalance)} SOL</div>
-              </>
-            ) : (
-              <>
-                <div className="text-[10px] uppercase tracking-wider text-muted">wallet</div>
-                <div className="text-sm font-bold tabular-nums">
-                  {liveSol == null ? "…" : `${fmtSol(liveSol)} SOL`}
-                </div>
-              </>
-            )}
+            <div className="text-[10px] uppercase tracking-wider text-muted">wallet</div>
+            <div className="text-sm font-bold tabular-nums">
+              {liveSol == null ? "…" : `${fmtSol(liveSol)} SOL`}
+            </div>
           </div>
         </div>
 
-        {/* mode toggle */}
-        {liveAvailable && !reviewing && (
-          <div className="mx-4 mt-3 flex items-center gap-1 rounded-full border border-line bg-panel2 p-0.5">
-            {(["PRACTICE", "LIVE"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => {
-                  setMode(m);
-                  setResult(null);
-                }}
-                className={`flex-1 rounded-full py-1.5 text-[10px] font-black tracking-wider transition ${
-                  mode === m
-                    ? m === "LIVE"
-                      ? "bg-up text-black"
-                      : "bg-panel text-ink"
-                    : "text-muted hover:text-ink"
-                }`}
-              >
-                {m === "LIVE" ? "🔴 LIVE · REAL SOL" : "PRACTICE"}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* logged-out prompt for live */}
-        {mode === "LIVE" && !wallet && (
+        {/* logged-out prompt */}
+        {!wallet && (
           <div className="mx-4 mt-3 rounded-xl border border-line bg-panel2 p-3 text-center">
             <p className="text-[11px] text-muted">
-              Live trading needs a wallet. Log in and one is created for you.
+              Trading needs a wallet. Log in and a self-custodial Solana wallet is created for you.
             </p>
             <button
               onClick={() => void login()}
@@ -358,6 +251,12 @@ export function BuySheet({
               Log in
             </button>
           </div>
+        )}
+
+        {!canTrade && (
+          <p className="mx-4 mt-3 rounded-lg border border-line bg-panel2 px-3 py-2 text-[11px] text-muted">
+            Trading is disabled for this deployment.
+          </p>
         )}
 
         {/* side toggle */}
@@ -384,15 +283,7 @@ export function BuySheet({
           </div>
         )}
 
-        {curveClosed && mode === "PRACTICE" && !reviewing && (
-          <p className="mx-4 mt-3 rounded-lg border border-line bg-panel2 px-3 py-2 text-[11px] text-muted">
-            This coin graduated to an AMM — practice curve trading is disabled, but{" "}
-            <strong className="text-ink">live trading still works</strong> (routed through the
-            Pump.fun AMM).
-          </p>
-        )}
-
-        {/* ---------------- review step (live only) ---------------- */}
+        {/* ---------------- review step ---------------- */}
         {reviewing && liveQuote && (
           <div className="px-4 pt-4">
             <div className="rounded-xl border border-up/40 bg-up/5 p-3">
@@ -429,6 +320,29 @@ export function BuySheet({
                 <Row label="route" value={liveQuote.route.join(" → ") || "Jupiter"} />
               </div>
             </div>
+
+            {fees && fees.totalSol > 0 && (
+              <div className="mt-3 rounded-xl border border-line bg-panel2/60 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-muted">
+                  In-app fee · charged with the swap
+                </div>
+                <div className="mt-2 space-y-1.5 text-xs">
+                  {fees.creatorSol > 0 && (
+                    <Row
+                      label={`creator${fees.creatorWallet ? ` ${fees.creatorWallet.slice(0, 4)}…${fees.creatorWallet.slice(-4)}` : ""} · 1%`}
+                      value={`${fmtSol(fees.creatorSol)} SOL`}
+                    />
+                  )}
+                  <Row
+                    label={`treasury${fees.creatorSol === 0 ? " (incl. creator share) · 3%" : " · 2%"}`}
+                    value={`${fmtSol(fees.treasurySol)} SOL`}
+                  />
+                  <div className="border-t border-line pt-1.5">
+                    <Row label="total fee on top" value={`${fmtSol(fees.totalSol)} SOL`} />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={() => void signAndConfirm()}
@@ -482,7 +396,7 @@ export function BuySheet({
                   />
                   <span className="text-xs font-semibold text-muted">SOL</span>
                 </div>
-                {mode === "LIVE" && liveSol != null && solAmount > liveSol && (
+                {liveSol != null && solAmount > liveSol && (
                   <p className="mt-2 text-[11px] text-down">
                     Wallet holds {fmtSol(liveSol)} SOL — not enough for this trade.
                   </p>
@@ -511,88 +425,42 @@ export function BuySheet({
                   ))}
                 </div>
                 <div className="mt-3 flex items-center justify-between rounded-xl border border-line bg-panel2 px-3 py-2 text-xs">
-                  <span className="text-muted">
-                    you hold{mode === "LIVE" ? " (on-chain)" : ""}
-                  </span>
+                  <span className="text-muted">you hold (on-chain)</span>
                   <span className="font-bold tabular-nums">
-                    {mode === "LIVE" && liveHeld == null
-                      ? "…"
-                      : `${fmtSol(heldForSell)} $${sym(coin.symbol)}`}
+                    {liveHeld == null ? "…" : `${fmtSol(heldForSell)} $${sym(coin.symbol)}`}
                   </span>
                 </div>
               </div>
             )}
 
-            {/* quote preview */}
+            {/* summary */}
             <div className="mx-4 mt-4 space-y-1.5 rounded-xl border border-line bg-panel2/60 px-3 py-3 text-xs">
-              {mode === "PRACTICE" ? (
-                <>
-                  <Row
-                    label="you receive"
-                    value={
-                      preview
-                        ? side === "BUY"
-                          ? `${fmtSol(preview.out)} $${sym(coin.symbol)}`
-                          : `${fmtSol(preview.out)} SOL`
-                        : "—"
-                    }
-                  />
-                  <Row label="avg price" value={preview ? `${fmtPrice(preview.price)} SOL` : "—"} />
-                  <Row label="curve fee (1%)" value={preview ? `${fmtSol(preview.fee)}` : "—"} />
-                  <Row
-                    label="price impact"
-                    value={preview ? fmtPct(preview.slip) : "—"}
-                    tone={preview && preview.slip > 5 ? "bad" : undefined}
-                  />
-                </>
-              ) : (
-                <>
-                  <Row
-                    label={side === "BUY" ? "you pay" : "you sell"}
-                    value={
-                      side === "BUY" ? `${solAmount} SOL` : `${fraction * 100}% of holding`
-                    }
-                  />
-                  <Row label="quote" value="fetched from Jupiter on next step" />
-                  <Row label="slippage tolerance" value="5%" />
-                </>
-              )}
+              <Row
+                label={side === "BUY" ? "you pay" : "you sell"}
+                value={side === "BUY" ? `${solAmount} SOL` : `${fraction * 100}% of holding`}
+              />
+              <Row label="quote" value="fetched from Jupiter on next step" />
+              <Row label="slippage tolerance" value="5%" />
+              {side === "BUY" && <Row label="in-app fee" value="+3% (1% creator · 2% treasury)" />}
             </div>
 
             <button
-              onClick={() => void (mode === "LIVE" ? requestLiveQuote() : submitPractice())}
-              disabled={disabled || (mode === "LIVE" && !wallet)}
+              onClick={() => void requestLiveQuote()}
+              disabled={disabled || !wallet}
               className={`mx-4 mt-4 w-[calc(100%-2rem)] rounded-xl py-3.5 text-sm font-black tracking-wide transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 side === "BUY" ? "burn-gradient text-black" : "bg-down text-black"
               }`}
             >
               {busy
-                ? mode === "LIVE"
-                  ? "getting quote…"
-                  : "filling…"
-                : mode === "LIVE"
-                  ? side === "BUY"
-                    ? `buy $${sym(coin.symbol)} · ${solAmount} SOL · LIVE`
-                    : `sell ${fraction === 1 ? "all" : `${fraction * 100}%`} $${sym(coin.symbol)} · LIVE`
-                  : curveClosed
-                    ? "curve closed"
-                    : side === "BUY"
-                      ? `buy $${sym(coin.symbol)} · ${solAmount} SOL (practice)`
-                      : `sell ${fraction === 1 ? "all" : `${fraction * 100}%`} $${sym(coin.symbol)}`}
+                ? "getting quote…"
+                : side === "BUY"
+                  ? `buy $${sym(coin.symbol)} · ${solAmount} SOL`
+                  : `sell ${fraction === 1 ? "all" : `${fraction * 100}%`} $${sym(coin.symbol)}`}
             </button>
 
             <p className="mt-3 px-4 text-center text-[10px] leading-relaxed text-muted">
-              {mode === "LIVE" ? (
-                <>
-                  Real SOL. You&apos;ll see the exact quote and sign it in your wallet before
-                  anything settles. Memecoins can go to zero.
-                </>
-              ) : (
-                <>
-                  Practice fills are priced off live on-chain reserves with the real 1% curve fee.
-                  No SOL moves — switch to LIVE to trade for real.
-                </>
-              )}
+              Real SOL. You&apos;ll see the exact quote and sign it in your wallet before anything
+              settles. Memecoins can go to zero.
             </p>
           </>
         )}
@@ -615,9 +483,11 @@ function Row({
   tone?: "bad";
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted">{label}</span>
-      <span className={`font-bold tabular-nums ${tone === "bad" ? "text-down" : "text-ink"}`}>
+    <div className="flex items-center justify-between gap-3">
+      <span className="min-w-0 truncate text-muted">{label}</span>
+      <span
+        className={`shrink-0 font-bold tabular-nums ${tone === "bad" ? "text-down" : "text-ink"}`}
+      >
         {value}
       </span>
     </div>

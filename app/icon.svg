@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="PumpClip">
+  <defs>
+    <linearGradient id="pcg" x1="6" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4dff9a"/>
+      <stop offset="0.52" stop-color="#22e06a"/>
+      <stop offset="1" stop-color="#0a9d4a"/>
+    </linearGradient>
+    <linearGradient id="pcs" x1="10" y1="6" x2="34" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="17" fill="url(#pcg)"/>
+  <rect x="0" y="0" width="64" height="64" rx="17" fill="url(#pcs)"/>
+  <!-- P: stem -->
+  <rect x="15.5" y="13" width="9.5" height="38" rx="4.75" fill="#05130c"/>
+  <!-- P: bowl -->
+  <path d="M25 13 H36.5 C44.2 13 50.5 18.4 50.5 25.2 C50.5 32 44.2 37.4 36.5 37.4 H25 Z" fill="#05130c"/>
+  <!-- counter is a play triangle — the "clip" in the P -->
+  <path d="M33.8 19.4 L43.6 25.2 L33.8 31 Z" fill="url(#pcg)"/>
+</svg>

@@ -12,6 +12,8 @@ import {
   jupiterSwapTransaction,
   routeLabels,
 } from "@/lib/jupiter";
+import { attachFees } from "@/lib/fees";
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,9 @@ const Body = z.discriminatedUnion("side", [
     side: z.literal("BUY"),
     solAmount: z.number().positive().max(50),
     slippageBps: z.number().int().min(10).max(3000).default(500),
+    /// Optional: the clip the buyer tapped through, used to route the 1% creator
+    /// fee. Without it the creator leg falls through to the treasury.
+    clipId: z.string().min(1).max(64).optional(),
   }),
   z.object({
     mint: z.string().min(32).max(48),
@@ -170,6 +175,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "INTERNAL", detail: "could not build the swap" }, { status: 500 });
   }
 
+  // ---- fees (buys only) --------------------------------------------------
+  // Quote/build errors above get the raw Jupiter message; a fee failure below is
+  // ours, so it reports differently.
+  let transaction = swap.swapTransaction;
+  let feeReport: {
+    treasurySol: number;
+    creatorSol: number;
+    creatorWallet: string | null;
+    totalSol: number;
+  } = { treasurySol: 0, creatorSol: 0, creatorWallet: null, totalSol: 0 };
+
+  if (parsed.side === "BUY") {
+    // The clip the buyer tapped through decides who earns the 1%. A seeded clip
+    // (or no clip) has no creator, so that 1% falls through to the treasury.
+    let creatorWallet: string | null = null;
+    if (parsed.clipId) {
+      const clip = await prisma.clip.findUnique({
+        where: { id: parsed.clipId },
+        select: { creatorWallet: true },
+      });
+      creatorWallet = clip?.creatorWallet ?? null;
+    }
+
+    try {
+      const conn = new Connection(SOLANA_RPC, "confirmed");
+      const withFees = await attachFees({
+        transactionBase64: swap.swapTransaction,
+        buyer: owner,
+        solInLamports: amount,
+        creatorWallet,
+        connection: conn,
+      });
+      transaction = withFees.transaction;
+      feeReport = {
+        treasurySol: Number(withFees.fees.treasury) / LAMPORTS_PER_SOL,
+        creatorSol: Number(withFees.fees.creator) / LAMPORTS_PER_SOL,
+        creatorWallet: withFees.fees.creatorWallet,
+        totalSol: Number(withFees.fees.total) / LAMPORTS_PER_SOL,
+      };
+    } catch (e) {
+      console.error("[live-prepare:fees]", e);
+      return NextResponse.json(
+        { error: "FEE_BUILD_FAILED", detail: "could not attach the trading fee" },
+        { status: 502 },
+      );
+    }
+  }
+
   const inAmount = Number(quote.inAmount);
   const outAmount = Number(quote.outAmount);
   const minOut = Number(quote.otherAmountThreshold);
@@ -179,12 +232,14 @@ export async function POST(req: NextRequest) {
     ok: true,
     side: parsed.side,
     mint: parsed.mint,
-    // Unsigned, base64. Jupiter's bytes verbatim — the browser signs exactly this.
-    transaction: swap.swapTransaction,
+    // Unsigned, base64. Jupiter's bytes (plus our fee transfers on a buy) — the
+    // browser signs exactly this.
+    transaction,
     lastValidBlockHeight: swap.lastValidBlockHeight ?? null,
     slippageBps: quote.slippageBps,
     priceImpactPct: Number(quote.priceImpactPct),
     route: labels,
+    fees: feeReport,
     // Human-readable expectations, per side.
     inputAmountRaw: quote.inAmount,
     outputAmountRaw: quote.outAmount,

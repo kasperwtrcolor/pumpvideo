@@ -46,10 +46,9 @@ export function publicTrader(t: {
   privyDid: string | null;
   email: string | null;
   loginMethod: string | null;
-  practiceBalance: number;
-  practiceStartBal: number;
 }) {
   return {
+    id: t.id,
     handle: t.handle,
     walletAddress: t.walletAddress,
     displayName: t.displayName,
@@ -57,12 +56,10 @@ export function publicTrader(t: {
     email: t.email,
     loginMethod: t.loginMethod,
     loggedIn: Boolean(t.privyDid),
-    practiceBalance: t.practiceBalance,
-    practiceStartBal: t.practiceStartBal,
-    // `mode` reflects whether this app can place real on-chain trades at all —
-    // not whether the viewer happens to have a wallet. executeLiveFill() is
-    // still a 501 stub, so claiming "LIVE" here would just be a lie.
-    mode: liveTradingEnabled() ? "LIVE" : "PRACTICE",
+    // Whether this *app* can place real on-chain trades at all. Not a statement
+    // about the viewer's wallet — the trade sheet checks that separately. It is
+    // what lets an operator pin the app to read-only with LIVE_TRADING_ENABLED=false.
+    canTrade: liveTradingEnabled(),
   };
 }
 
@@ -115,6 +112,7 @@ export function serializeClip(c: {
   thumbUrl: string | null;
   caption: string | null;
   author: string | null;
+  creatorWallet?: string | null;
   likes: number;
   shares: number;
   comments: number;
@@ -127,6 +125,7 @@ export function serializeClip(c: {
     thumbUrl: c.thumbUrl,
     caption: c.caption,
     author: c.author,
+    creatorWallet: c.creatorWallet ?? null,
     likes: c.likes,
     shares: c.shares,
     comments: c.comments,

@@ -34,15 +34,15 @@ const SOLANA_CONFIG = {
   },
 };
 
-const ACCENT = "#ff7a1a";
+const ACCENT = "#22e06a";
 
 /**
  * Wraps the app in `PrivyProvider`, or steps out of the way entirely when no
  * app id is configured.
  *
- * Degrading instead of throwing matters here: the whole app runs on practice
- * money with no login, so a deployment (or a contributor's laptop) without
- * Privy env vars must still boot rather than white-screen.
+ * Degrading instead of throwing matters here: a deployment (or a contributor's
+ * laptop) without Privy env vars must still boot the feed rather than
+ * white-screen — viewing clips never requires a login.
  */
 export function PrivyRoot({ children }: { children: React.ReactNode }) {
   if (!privyEnabled) return <>{children}</>;

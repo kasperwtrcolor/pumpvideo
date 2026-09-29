@@ -1,9 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Connection } from "@solana/web3.js";
+import { Connection, SystemProgram } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
 import { SOLANA_RPC } from "@/lib/pumpfun";
+import { TREASURY_VAULT } from "@/lib/fees";
 import { privyConfigured, traderFromAuthHeader } from "@/lib/privy";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 
@@ -25,6 +26,9 @@ const Body = z.object({
   mint: z.string().min(32).max(48),
   side: z.enum(["BUY", "SELL"]),
   signature: z.string().min(60).max(100),
+  /// The clip the buyer came through. Used only to identify which creator's
+  /// 1% leg to look for in the transaction — never trusted for the amount.
+  clipId: z.string().min(1).max(64).optional(),
 });
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -68,7 +72,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "BAD_BODY", detail: (e as Error).message }, { status: 400 });
   }
 
-  const { mint, side, signature } = parsed;
+  const { mint, side, signature, clipId } = parsed;
 
   // Replay guard: a signature can only ever back one trade row.
   const already = await prisma.trade.findFirst({ where: { txSig: signature } });
@@ -155,6 +159,43 @@ export async function POST(req: NextRequest) {
       ? solAmount / (Number(tokDelta < 0n ? -tokDelta : tokDelta) / 10 ** (decimals ?? 6))
       : 0;
 
+  // ---- read the in-app fee off the transaction ---------------------------
+  // We appended the fee as plain SystemProgram transfers, so they are the last
+  // instructions and their destinations are static keys. Summing what actually
+  // moved to the vault and to the creator is a fact; the request body is not.
+  const creatorWallet = clipId
+    ? (await prisma.clip.findUnique({ where: { id: clipId }, select: { creatorWallet: true } }))
+        ?.creatorWallet ?? null
+    : null;
+
+  const staticKeys = keys;
+  const sysProgram = SystemProgram.programId.toBase58();
+  const transferLamports = (to: string): bigint => {
+    let sum = 0n;
+    for (const ix of tx!.transaction.message.compiledInstructions) {
+      if (staticKeys[ix.programIdIndex] !== sysProgram) continue;
+      const toIdx = ix.accountKeyIndexes[1];
+      if (toIdx == null || toIdx >= staticKeys.length) continue;
+      if (staticKeys[toIdx] !== to) continue;
+      const data = ix.data;
+      if (data.length < 12 || data[0] !== 2) continue; // 2 = System Transfer
+      let lamports = 0n;
+      for (let i = 0; i < 8; i++) lamports |= BigInt(data[4 + i]) << BigInt(8 * i);
+      sum += lamports;
+    }
+    return sum;
+  };
+
+  const treasuryFeeSol = side === "BUY" ? Number(transferLamports(TREASURY_VAULT)) / LAMPORTS_PER_SOL : 0;
+  const creatorFeeSol =
+    side === "BUY" && creatorWallet && creatorWallet !== TREASURY_VAULT
+      ? Number(transferLamports(creatorWallet)) / LAMPORTS_PER_SOL
+      : 0;
+  const inAppFeeSol = treasuryFeeSol + creatorFeeSol;
+
+  const tokenRaw = tokDelta < 0n ? -tokDelta : tokDelta;
+  const tokenUi = Number(tokenRaw) / 10 ** (decimals ?? 6);
+
   const trade = await prisma.trade.create({
     data: {
       traderId: trader.id,
@@ -163,12 +204,52 @@ export async function POST(req: NextRequest) {
       side,
       mode: "LIVE",
       solAmount,
-      tokenAmount,
+      tokenAmount: tokenRaw.toString(),
       priceSol,
-      feeSol: (meta.fee ?? 0) / LAMPORTS_PER_SOL,
+      feeSol: inAppFeeSol,
       txSig: signature,
     },
   });
+
+  // ---- keep the position mirror in step with the wallet -------------------
+  const existing = await prisma.position.findUnique({
+    where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
+  });
+  const heldBefore = BigInt(existing?.tokenAmount ?? "0");
+  const heldAfter = side === "BUY" ? heldBefore + tokenRaw : heldBefore - tokenRaw;
+
+  if (heldAfter <= 0n && side === "SELL") {
+    // Fully exited. Keep the row but zero it so realized PnL survives.
+    await prisma.position.upsert({
+      where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
+      create: {
+        traderId: trader.id,
+        coinId: coin.id,
+        tokenAmount: "0",
+        costSol: 0,
+        realizedSol: solAmount,
+      },
+      update: {
+        tokenAmount: "0",
+        costSol: 0,
+        realizedSol: { increment: solAmount },
+      },
+    });
+  } else {
+    await prisma.position.upsert({
+      where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
+      create: {
+        traderId: trader.id,
+        coinId: coin.id,
+        tokenAmount: heldAfter.toString(),
+        costSol: side === "BUY" ? solAmount : 0,
+      },
+      update: {
+        tokenAmount: heldAfter.toString(),
+        ...(side === "BUY" ? { costSol: { increment: solAmount } } : {}),
+      },
+    });
+  }
 
   return NextResponse.json({
     ok: true,
@@ -176,8 +257,10 @@ export async function POST(req: NextRequest) {
     symbol: coin.symbol,
     side,
     solAmount,
-    tokenAmount,
+    tokenAmount: tokenUi,
     priceSol,
+    feeSol: inAppFeeSol,
+    feeBreakdown: { treasurySol: treasuryFeeSol, creatorSol: creatorFeeSol, creatorWallet },
     signature,
     explorer: `https://explorer.solana.com/tx/${signature}`,
   });

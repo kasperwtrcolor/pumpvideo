@@ -46,25 +46,29 @@ export default function PortfolioPage() {
       <div className="mx-auto max-w-2xl px-3 pb-24 pt-4">
         <h1 className="text-2xl font-black tracking-tight">Portfolio</h1>
         <p className="mt-1 text-xs text-muted">
-          Practice book. Fills priced off live on-chain reserves — no SOL moves.
+          Your live book. Positions mirror what your wallet actually holds on chain.
         </p>
 
         <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
           <div className="text-[10px] font-bold uppercase tracking-wider text-muted">
-            equity
+            wallet balance
           </div>
           <div className="mt-1 text-3xl font-black tabular-nums">
-            {data ? `${fmtSol(data.equity)} SOL` : "—"}
+            {data?.walletSol != null ? `${fmtSol(data.walletSol)} SOL` : "—"}
           </div>
           <div className="text-xs text-muted tabular-nums">
-            {data ? fmtUsd(data.equity * solUsd) : ""}
+            {data?.walletSol != null
+              ? fmtUsd(data.walletSol * solUsd)
+              : data
+                ? "connect a wallet to see this"
+                : ""}
           </div>
 
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <Cell label="cash" value={data ? `${fmtSol(data.cashSol)}` : "—"} />
             <Cell label="holdings" value={data ? `${fmtSol(data.holdingsValue)}` : "—"} />
+            <Cell label="cost basis" value={data ? `${fmtSol(data.costBasis)}` : "—"} />
             <Cell
-              label="total pnl"
+              label="unreal. pnl"
               value={data ? fmtPct(data.pnlPct) : "—"}
               tone={up ? "up" : "down"}
             />
@@ -142,12 +146,17 @@ export default function PortfolioPage() {
                 {t.side}
               </span>
               <span className="font-bold">${sym(t.symbol)}</span>
-              {t.mode === "LIVE" && (
-                <span className="shrink-0 rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-accent">
-                  LIVE
-                </span>
-              )}
               <span className="text-muted tabular-nums">{fmtSol(t.solAmount)} SOL</span>
+              {t.txSig && (
+                <a
+                  href={`https://explorer.solana.com/tx/${t.txSig}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-accent"
+                >
+                  ON-CHAIN ↗
+                </a>
+              )}
               <span className="ml-auto text-[10px] text-muted">{timeAgo(t.at)} ago</span>
             </div>
           ))}
@@ -157,9 +166,8 @@ export default function PortfolioPage() {
         </div>
 
         <p className="mt-3 text-[10px] leading-relaxed text-muted">
-          This book shows practice positions. Live trades settle directly in your wallet — the
-          &ldquo;recent fills&rdquo; list above marks them{" "}
-          <span className="font-black text-accent">LIVE</span> and links to the chain.
+          This book mirrors your live on-chain positions. Every fill settles directly in your
+          wallet — the &ldquo;recent fills&rdquo; list links each one to the chain.
         </p>
 
         {/* footer */}

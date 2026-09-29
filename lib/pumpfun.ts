@@ -2,7 +2,7 @@
  * Live market data client for pump.fun.
  *
  * Uses the public frontend API that the pump.fun UI itself calls. No key required.
- * We only ever read — all writes go through the practice engine or the live swap route.
+ * We only ever read — all writes go through the live swap route.
  */
 
 const FEED_API = "https://frontend-api-v3.pump.fun";

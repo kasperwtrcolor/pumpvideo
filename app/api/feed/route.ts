@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { withTrader, serializeCoin, serializeClip } from "@/lib/api";
+import { resolveTrader } from "@/lib/session";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 import { solUsd } from "@/lib/sol-price";
 
@@ -46,16 +47,35 @@ export async function GET(req: NextRequest) {
     solUsd(),
   ]);
 
-  return withTrader({
-    items: clips.map((c) => ({
-      ...serializeClip(c),
-      coin: serializeCoin(c.coin),
-    })),
-    nextOffset: offset + clips.length,
-    total,
-    hasMore: offset + clips.length < total,
-    solUsd: usd,
-    rpc: SOLANA_RPC.replace(/^https?:\/\//, "").split("/")[0],
-    liveReady: false, // flips true once executeLiveFill() is implemented
-  });
+  // Who is asking? Resolved once, here, and threaded through withTrader — calling
+  // it twice inside one request would mint two trader rows and point the cookie
+  // at the wrong one.
+  const { trader, created } = await resolveTrader();
+
+  const likedIds = trader
+    ? new Set(
+        (
+          await prisma.clipLike.findMany({
+            where: { traderId: trader.id, clipId: { in: clips.map((c) => c.id) } },
+            select: { clipId: true },
+          })
+        ).map((r) => r.clipId),
+      )
+    : new Set<string>();
+
+  return withTrader(
+    {
+      items: clips.map((c) => ({
+        ...serializeClip(c),
+        likedByMe: likedIds.has(c.id),
+        coin: serializeCoin(c.coin),
+      })),
+      nextOffset: offset + clips.length,
+      total,
+      hasMore: offset + clips.length < total,
+      solUsd: usd,
+      rpc: SOLANA_RPC.replace(/^https?:\/\//, "").split("/")[0],
+    },
+    { trader, created },
+  );
 }

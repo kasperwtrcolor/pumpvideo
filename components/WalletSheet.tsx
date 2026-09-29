@@ -302,11 +302,6 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
             </div>
 
             <div className="mt-3 rounded-xl border border-line bg-panel2 px-3">
-              <Row
-                label="Practice"
-                value={`${trader?.practiceBalance?.toFixed(4) ?? "—"} SOL`}
-              />
-              <div className="border-t border-line" />
               <Row label="Account" value={trader?.email ?? "anon"} />
               <div className="border-t border-line" />
               <Row label="Signed in via" value={loginLabel} />
@@ -322,7 +317,7 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
               Funds in this wallet are yours — PumpClip never holds your keys and cannot
               move them. Buys and sells are signed by this wallet and settle on Solana
-              mainnet; switch to practice mode in the trade sheet to trade without SOL.
+              mainnet.
             </p>
 
             <div className="mt-4 border-t border-line pt-3">

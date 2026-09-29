@@ -20,8 +20,8 @@ export const dynamic = "force-dynamic";
  *
  * The token is verified server-side before anything is written — a client that
  * simply *claims* a user id gets nothing. On success the existing anonymous
- * trader (if any) is adopted rather than replaced, so practice balances and
- * positions survive logging in.
+ * trader (if any) is adopted rather than replaced, so likes, comments, uploads
+ * and positions survive logging in.
  */
 export async function POST(req: NextRequest) {
   if (!privyConfigured()) {
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
  *
  * Only the app session is cleared. The Privy session is ended client-side by
  * `logout()`; doing it here would require forwarding a token we don't need.
- * The next request transparently provisions a fresh anonymous practice trader.
+ * The next request transparently provisions a fresh anonymous trader.
  */
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });

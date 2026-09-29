@@ -8,7 +8,7 @@ import { useTrader } from "./TraderProvider";
  * Bridges a Privy session into an app session.
  *
  * Privy authenticates the *person*; this app still needs its own trader row to
- * hang practice balances, positions and the trade log off. On login we hand the
+ * hang likes, comments, uploads, positions and the trade log off. On login we hand the
  * tokens to `/api/auth/session`, which verifies them server-side and returns the
  * trader that the rest of the app already knows how to talk to.
  *

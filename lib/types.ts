@@ -30,10 +30,14 @@ export type ClipDTO = {
   thumbUrl: string | null;
   caption: string | null;
   author: string | null;
+  /** Wallet that earns the 1% creator fee on buys through this clip. */
+  creatorWallet: string | null;
   likes: number;
   shares: number;
   comments: number;
   views: number;
+  /** True when the requesting trader has liked this clip. */
+  likedByMe?: boolean;
 };
 
 export type FeedItemDTO = ClipDTO & { coin: CoinDTO };
@@ -44,6 +48,15 @@ export type FeedResponse = {
   total: number;
   hasMore: boolean;
   solUsd: number;
+};
+
+export type CommentDTO = {
+  id: string;
+  body: string;
+  author: string;
+  avatarUrl: string | null;
+  mine: boolean;
+  at: string;
 };
 
 export type PositionDTO = {
@@ -63,8 +76,9 @@ export type PositionDTO = {
 };
 
 export type AccountResponse = {
-  equity: number;
-  cashSol: number;
+  walletAddress: string | null;
+  /** Live on-chain SOL balance, or null when it could not be read. */
+  walletSol: number | null;
   holdingsValue: number;
   costBasis: number;
   realizedSol: number;
@@ -78,6 +92,7 @@ export type AccountResponse = {
     mode: string;
     solAmount: number;
     priceSol: number;
+    txSig: string | null;
     at: string;
   }[];
 };

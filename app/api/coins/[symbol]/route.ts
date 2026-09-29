@@ -30,7 +30,7 @@ export async function GET(
   }
 
   const trades = await prisma.trade.findMany({
-    where: { coinMint: coin.mint, mode: "PRACTICE" },
+    where: { coinMint: coin.mint },
     orderBy: { createdAt: "desc" },
     take: 25,
     include: { trader: { select: { handle: true } } },

@@ -122,21 +122,32 @@ export default function TermsPage() {
         </p>
       </Section>
 
-      <Section title="6. Practice mode">
+      <Section title="6. Uploads and creator fees">
         <p>
-          The Service offers a practice mode using simulated balances. Practice balances are not
-          real assets, have no value, cannot be withdrawn or transferred, and may be reset or
-          adjusted at any time. Practice results are simulated against market data and are not a
-          prediction of live results.
+          You may upload video clips and bind them to a token address. You must own or have the
+          rights to anything you upload, and you may not upload content that is unlawful, infringing,
+          sexually explicit, or that depicts another person without their consent. We may remove any
+          clip at any time.
+        </p>
+        <p>
+          When a clip you uploaded is bound to a token and another user buys that token through your
+          clip, you receive a 1% fee on the buy, paid in SOL directly to the wallet you nominated.
+          Additional fees apply to the platform treasury.{" "}
+          <strong className="text-ink">
+            Please note that a 1% fee paid to a wallet you control is a payment to you, and you are
+            responsible for any tax arising from it.
+          </strong>
         </p>
       </Section>
 
       <Section title="7. Fees">
         <p>
           Live trades pay network fees charged by the Solana blockchain, plus any fee charged by the
-          third-party liquidity venue and swap router used to fill your trade. These fees are shown
-          to you before you sign. We may in future charge a service fee, which will be disclosed
-          before you sign a transaction that includes it.
+          third-party liquidity venue and swap router used to fill your trade. In addition, a
+          service fee of 3% of the buy amount is charged on in-app buys: 1% to the creator of the
+          clip you bought through (or to the treasury where there is no creator) and 2% to the
+          platform treasury. This fee is taken in SOL as part of the same transaction as the swap,
+          and the exact amount is shown to you before you sign. Selling does not carry a service fee.
         </p>
       </Section>
 

@@ -45,9 +45,9 @@ export default function PrivacyPage() {
             metadata, processed transiently for rate limiting and abuse prevention, plus error logs.
           </li>
           <li>
-            <strong className="text-ink">A session cookie.</strong> If you use practice mode without
-            signing in, a first-party cookie holds a random anonymous identifier so your practice
-            balance persists. See section 5.
+            <strong className="text-ink">A session cookie.</strong> If you visit without signing in,
+            a first-party cookie holds a random anonymous identifier so that anything you do —
+            likes, comments, uploads — stays attached to you until you log in. See section 5.
           </li>
         </ul>
       </Section>
@@ -72,7 +72,7 @@ export default function PrivacyPage() {
       <Section title="4. How we use it">
         <ul className="list-disc space-y-1 pl-5">
           <li>to create and secure your account and wallet, and keep you signed in;</li>
-          <li>to operate practice mode and record the trades you make;</li>
+          <li>to record the trades you make, and to store the clips, likes and comments you create;</li>
           <li>to build the unsigned transactions you ask for, and verify on-chain that they settled;</li>
           <li>to show balances, positions, and market context;</li>
           <li>to rate limit, prevent abuse, and debug failures;</li>
@@ -86,9 +86,9 @@ export default function PrivacyPage() {
 
       <Section title="5. Cookies and local storage">
         <p>
-          We use a first-party cookie only to keep you signed in / keep your practice account
-          attached. It is not used for tracking or advertising. Blocking it will break practice mode
-          persistence and sign-in. Signing out clears the session server-side.
+          We use a first-party cookie only to keep you signed in or to keep anything you did
+          anonymously attached to you. It is not used for tracking or advertising. Blocking it will
+          break sign-in and anonymous attribution. Signing out clears the session server-side.
         </p>
         <p>
           Your wallet provider sets its own storage inside their sandboxed window. Their handling of

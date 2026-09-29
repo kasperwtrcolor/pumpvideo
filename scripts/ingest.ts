@@ -89,10 +89,10 @@ async function ingest(
             thumbUrl: `/thumbs/${coin.mint}.jpg`,
             caption,
             author: "unclaimed",
-            likes: Math.round(Math.log10(Math.max(10, record.marketCapSol)) * 40),
-            shares: Math.round(Math.log10(Math.max(10, record.marketCapSol)) * 6),
-            comments: Math.round(Math.log10(Math.max(10, record.marketCapSol)) * 3),
-            views: Math.round(Math.log10(Math.max(10, record.marketCapSol)) * 900),
+            // Engagement counters start at zero and are only ever moved by real
+            // ClipLike / ClipComment / ClipShare rows. Inventing a plausible
+            // number from market cap made the feed look alive while telling a
+            // lie about every clip.
             rank,
           },
         });

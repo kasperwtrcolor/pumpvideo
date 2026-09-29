@@ -12,11 +12,17 @@
  * If this passes, a live trade can only fail for wallet-side reasons (no SOL,
  * user rejects, RPC down) — never because the server built a bad transaction.
  */
-import { Keypair, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, SystemProgram, VersionedTransaction } from "@solana/web3.js";
 import { jupiterQuote, jupiterSwapTransaction, routeLabels, WSOL_MINT } from "../lib/jupiter";
+import { attachFees, computeFeeSplit, TREASURY_VAULT } from "../lib/fees";
+import { SOLANA_RPC } from "../lib/pumpfun";
 
 const LAMPORTS = 1_000_000_000;
-const MINT = process.argv[2] || "7AaikLQoMLQhxGto9nr9iN5SWkPdLq3Daa87svehpump";
+// A live, tradable pump.fun coin. Deliberately NOT the old default: some mints
+// resolve to a Pump.fun Amm → Pump.fun two-hop whose transaction is 1340 bytes,
+// over Solana's 1232 limit, so the RPC rejects it before it ever reaches a
+// wallet. Override with any mint you like.
+const MINT = process.argv[2] || "XU438yQcHEf5bGAZ3pHqXhbZPqotoapdanjnhj1pump";
 
 // A throwaway keypair stands in for the user's embedded wallet. We never sign,
 // so this only needs to be a valid curve point.
@@ -73,6 +79,58 @@ async function main() {
     check("has exactly one signature slot", tx.signatures.length === 1, `${tx.signatures.length}`);
     console.log(`        ${keys.length} static account keys, ${tx.message.compiledInstructions.length} instructions`);
   }
+
+  console.log("\nBUY fee split (1% creator + 2% treasury)");
+  const creator = Keypair.generate().publicKey;
+  const split = computeFeeSplit(100_000_000n, creator.toBase58());
+  check("creator leg is 1% of the buy", split.creator === 1_000_000n, `${split.creator} lamports`);
+  check("treasury leg is 2% of the buy", split.treasury === 2_000_000n, `${split.treasury} lamports`);
+
+  const conn = new Connection(SOLANA_RPC, "confirmed");
+  const withFees = await attachFees({
+    transactionBase64: swap.swapTransaction,
+    buyer: owner,
+    solInLamports: 100_000_000n,
+    creatorWallet: creator.toBase58(),
+    connection: conn,
+  });
+
+  const feeTx = VersionedTransaction.deserialize(Buffer.from(withFees.transaction, "base64"));
+  check(
+    "fee payer is still the buyer",
+    feeTx.message.staticAccountKeys[0].toBase58() === owner.toBase58(),
+  );
+  check("fee tx is still unsigned", feeTx.signatures.every((s) => s.every((b) => b === 0)));
+  check("fee tx has exactly one signature slot", feeTx.signatures.length === 1, `${feeTx.signatures.length}`);
+
+  // Jupiter's own wrap/unwrap uses SystemProgram too, so identify *our* legs by
+  // position (they are appended last) and by destination, not by count alone.
+  const staticKeys = feeTx.message.staticAccountKeys.map((k) => k.toBase58());
+  const sysProgram = SystemProgram.programId.toBase58();
+  const ixs = feeTx.message.compiledInstructions;
+
+  function solTransfer(ix: (typeof ixs)[number]): { to: string; lamports: number } | null {
+    if (staticKeys[ix.programIdIndex] !== sysProgram) return null;
+    const toIdx = ix.accountKeyIndexes[1];
+    if (toIdx >= staticKeys.length) return null; // lives in a lookup table
+    const data = ix.data;
+    if (data.length < 12 || data[0] !== 2) return null; // 2 = Transfer
+    let lamports = 0n;
+    for (let i = 0; i < 8; i++) lamports |= BigInt(data[4 + i]) << BigInt(8 * i);
+    return { to: staticKeys[toIdx], lamports: Number(lamports) };
+  }
+
+  const lastTwo = [solTransfer(ixs[ixs.length - 2]), solTransfer(ixs[ixs.length - 1])];
+  check("the last two instructions are SOL transfers", lastTwo.every(Boolean), `${ixs.length} instructions total`);
+
+  const toTreasury = lastTwo.find((t) => t?.to === TREASURY_VAULT);
+  const toCreator = lastTwo.find((t) => t?.to === creator.toBase58());
+  check("2% leg pays the treasury vault", toTreasury?.lamports === 2_000_000, `${toTreasury?.lamports ?? "n/a"}`);
+  check("1% leg pays the clip creator", toCreator?.lamports === 1_000_000, `${toCreator?.lamports ?? "n/a"}`);
+  console.log(
+    `        a 0.1 SOL buy carries ${(Number(withFees.fees.total) / LAMPORTS).toFixed(4)} SOL in fees ` +
+      `(swap then treasury then creator, atomic)`,
+  );
 
   console.log("\nSELL quote (1,000,000 raw tokens in)");
   const sell = await jupiterQuote({

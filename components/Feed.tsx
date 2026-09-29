@@ -3,16 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FeedItemDTO, FeedResponse } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
+import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
-import {
-  fmtCount,
-  fmtPct,
-  fmtPrice,
-  fmtSol,
-  fmtUsd,
-  shortAddr,
-  sym,
-} from "@/lib/format";
+import { CommentSheet } from "./CommentSheet";
+import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym } from "@/lib/format";
 import { CoinAvatar } from "./CoinAvatar";
 
 type Sort = "hot" | "new" | "top";
@@ -23,8 +17,20 @@ const SORTS: { key: Sort; label: string }[] = [
   { key: "top", label: "Top" },
 ];
 
+/** Live engagement numbers for one clip, seeded from the feed and then updated
+ *  from whatever the server reports after each action. */
+type Counts = { likes: number; shares: number; comments: number; views: number };
+
+const countsOf = (it: FeedItemDTO): Counts => ({
+  likes: it.likes,
+  shares: it.shares,
+  comments: it.comments,
+  views: it.views,
+});
+
 export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const { toast, refresh } = useTrader();
+  const { authenticated, login, getToken } = useAuth();
 
   const [sort, setSort] = useState<Sort>("hot");
   const [items, setItems] = useState<FeedItemDTO[]>([]);
@@ -34,10 +40,14 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
+  const [counts, setCounts] = useState<Record<string, Counts>>({});
   const [sheetIdx, setSheetIdx] = useState<number | null>(null);
+  const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
   const [solUsd, setSolUsd] = useState(initialSolUsd);
 
   const scroller = useRef<HTMLDivElement>(null);
+  // A view is counted once per clip per session — re-scrolling shouldn't inflate it.
+  const viewed = useRef<Set<string>>(new Set());
 
   const load = useCallback(
     async (nextSort: Sort, nextOffset: number, replace: boolean) => {
@@ -50,6 +60,20 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
         const j = (await r.json()) as FeedResponse;
         setSolUsd(j.solUsd || initialSolUsd);
         setItems((prev) => (replace ? j.items : [...prev, ...j.items]));
+
+        // Seed real state from the server rather than assuming everything
+        // starts unliked and at zero.
+        setLiked((prev) => {
+          const next = replace ? {} : { ...prev };
+          for (const it of j.items) next[it.id] = Boolean(it.likedByMe);
+          return next;
+        });
+        setCounts((prev) => {
+          const next = replace ? {} : { ...prev };
+          for (const it of j.items) next[it.id] = countsOf(it);
+          return next;
+        });
+
         setOffset(j.nextOffset);
         setHasMore(j.hasMore);
       } catch {
@@ -69,7 +93,8 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     void load(sort, 0, true);
   }, [sort, load]);
 
-  // Pause everything but the clip in view; preload the neighbours.
+  // Pause everything but the clip in view; preload the neighbours; count a real
+  // watch the first time a clip actually plays.
   useEffect(() => {
     const root = scroller.current;
     if (!root) return;
@@ -83,6 +108,11 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
           if (e.isIntersecting && e.intersectionRatio > 0.6) {
             setActive(idx);
             vid.play().catch(() => {});
+            const id = el.dataset.clipId;
+            if (id && !viewed.current.has(id)) {
+              viewed.current.add(id);
+              void fetch(`/api/clips/${id}/view`, { method: "POST" }).catch(() => {});
+            }
           } else {
             vid.pause();
           }
@@ -104,16 +134,42 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const onFilled = useCallback(
     (idx: number, priceSol: number) => {
       setItems((prev) =>
-        prev.map((it, i) =>
-          i === idx ? { ...it, coin: { ...it.coin, priceSol } } : it,
-        ),
+        prev.map((it, i) => (i === idx ? { ...it, coin: { ...it.coin, priceSol } } : it)),
       );
       void refresh();
     },
     [refresh],
   );
 
-  const share = useCallback(
+  const onLike = useCallback(
+    async (it: FeedItemDTO) => {
+      if (!authenticated) {
+        toast("Log in to like clips", "bad");
+        login();
+        return;
+      }
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("session expired — log in again");
+        const r = await fetch(`/api/clips/${it.id}/like`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const j = (await r.json()) as { detail?: string; error?: string; liked?: boolean; likes?: number };
+        if (!r.ok) throw new Error(j.detail || j.error || "could not like that");
+        setLiked((l) => ({ ...l, [it.id]: Boolean(j.liked) }));
+        setCounts((c) => ({
+          ...c,
+          [it.id]: { ...(c[it.id] ?? countsOf(it)), likes: j.likes ?? 0 },
+        }));
+      } catch (e) {
+        toast((e as Error).message, "bad");
+      }
+    },
+    [authenticated, getToken, login, toast],
+  );
+
+  const onShare = useCallback(
     async (it: FeedItemDTO) => {
       const url = `${window.location.origin}/coin/${it.coin.symbol}`;
       try {
@@ -124,10 +180,31 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
           toast("link copied");
         }
       } catch {
-        /* user cancelled */
+        // The user cancelled the share sheet — that is not a share, so it is not
+        // counted. Recording it would make the number meaningless.
+        return;
+      }
+
+      if (!authenticated) return;
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const r = await fetch(`/api/clips/${it.id}/share`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const j = (await r.json()) as { shares?: number };
+        if (r.ok && typeof j.shares === "number") {
+          setCounts((c) => ({
+            ...c,
+            [it.id]: { ...(c[it.id] ?? countsOf(it)), shares: j.shares as number },
+          }));
+        }
+      } catch {
+        /* the share already happened; a failed count is not worth a toast */
       }
     },
-    [toast],
+    [authenticated, getToken, toast],
   );
 
   return (
@@ -156,10 +233,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
         </div>
       </div>
 
-      <div
-        ref={scroller}
-        className="snap-feed no-scrollbar h-full overflow-y-scroll"
-      >
+      <div ref={scroller} className="snap-feed no-scrollbar h-full overflow-y-scroll">
         {items.map((it, i) => (
           <ClipPanel
             key={it.id}
@@ -167,10 +241,12 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             index={i}
             muted={muted}
             liked={Boolean(liked[it.id])}
+            counts={counts[it.id] ?? countsOf(it)}
             solUsd={solUsd}
-            onLike={() => setLiked((l) => ({ ...l, [it.id]: !l[it.id] }))}
+            onLike={() => void onLike(it)}
             onBuy={() => setSheetIdx(i)}
-            onShare={() => void share(it)}
+            onShare={() => void onShare(it)}
+            onComment={() => setCommentFor(it)}
           />
         ))}
 
@@ -178,16 +254,13 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <p className="text-lg font-bold">Nothing on the wall yet.</p>
             <p className="text-xs text-muted">
-              Run <code className="rounded bg-panel2 px-1.5 py-0.5">npm run seed</code> to pull
-              live pump.fun coins and render their clips.
+              Upload a clip and bind it to a token to get the feed started.
             </p>
           </div>
         )}
 
         {loading && (
-          <div className="flex h-24 items-center justify-center text-xs text-muted">
-            loading…
-          </div>
+          <div className="flex h-24 items-center justify-center text-xs text-muted">loading…</div>
         )}
         {!hasMore && items.length > 0 && (
           <div className="flex h-24 items-center justify-center text-xs text-muted">
@@ -199,9 +272,25 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
       {sheetIdx !== null && items[sheetIdx] && (
         <BuySheet
           coin={items[sheetIdx].coin}
+          clipId={items[sheetIdx].id}
           open
           onClose={() => setSheetIdx(null)}
           onFilled={({ priceSol }) => onFilled(sheetIdx, priceSol)}
+        />
+      )}
+
+      {commentFor && (
+        <CommentSheet
+          clipId={commentFor.id}
+          symbol={commentFor.coin.symbol}
+          open
+          onClose={() => setCommentFor(null)}
+          onCount={(n) =>
+            setCounts((c) => ({
+              ...c,
+              [commentFor.id]: { ...(c[commentFor.id] ?? countsOf(commentFor)), comments: n },
+            }))
+          }
         />
       )}
     </div>
@@ -213,19 +302,23 @@ function ClipPanel({
   index,
   muted,
   liked,
+  counts,
   solUsd,
   onLike,
   onBuy,
   onShare,
+  onComment,
 }: {
   item: FeedItemDTO;
   index: number;
   muted: boolean;
   liked: boolean;
+  counts: Counts;
   solUsd: number;
   onLike: () => void;
   onBuy: () => void;
   onShare: () => void;
+  onComment: () => void;
 }) {
   const { coin } = item;
   const vid = useRef<HTMLVideoElement>(null);
@@ -238,6 +331,7 @@ function ClipPanel({
   return (
     <section
       data-index={index}
+      data-clip-id={item.id}
       className="snap-item relative h-full w-full overflow-hidden bg-black"
     >
       {/* thumbnail sits underneath so the panel is never blank while the file loads */}
@@ -274,27 +368,33 @@ function ClipPanel({
           ring
         />
         <RailButton
-          label={fmtCount(item.likes + (liked ? 1 : 0))}
+          label={fmtCount(counts.likes)}
           sub="like"
           icon={liked ? "❤️" : "🤍"}
           onClick={onLike}
           active={liked}
         />
-        <RailButton label={fmtCount(item.comments)} sub="chat" icon="💬" />
-        <RailButton label={fmtCount(item.shares)} sub="share" icon="↗" onClick={onShare} />
+        <RailButton label={fmtCount(counts.comments)} sub="chat" icon="💬" onClick={onComment} />
         <RailButton
-          label={fmtCount(item.views)}
-          sub="views"
-          icon="👁"
+          label={fmtCount(counts.shares)}
+          sub="share"
+          icon="↗"
+          onClick={onShare}
         />
+        <RailButton label={fmtCount(counts.views)} sub="views" icon="👁" />
       </div>
 
       {/* bottom info */}
       <div className="absolute inset-x-0 bottom-0 z-30 space-y-3 p-4 pr-20">
         <div className="flex items-center gap-2 text-xs text-white/90 text-glow">
           <span className="font-bold">@{item.author ?? "unclaimed"}</span>
+          {item.source === "UPLOAD" && (
+            <span className="rounded bg-accent/25 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-accent">
+              CREATOR
+            </span>
+          )}
           <span className="text-white/50">·</span>
-          <span className="text-white/60">{fmtCount(item.views)} views</span>
+          <span className="text-white/60">{fmtCount(counts.views)} views</span>
         </div>
 
         <p className="line-clamp-2 text-sm font-medium text-white/95 text-glow">
@@ -375,9 +475,7 @@ function RailButton({
         <CoinAvatar
           src={art}
           symbol={symbol ?? label}
-          className={`h-11 w-11 rounded-full ${
-            ring ? "" : "border border-white/40"
-          }`}
+          className={`h-11 w-11 rounded-full ${ring ? "" : "border border-white/40"}`}
           ring={ring}
         />
       ) : (

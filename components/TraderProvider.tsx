@@ -10,6 +10,7 @@ import {
 } from "react";
 
 export type Trader = {
+  id: string;
   handle: string;
   walletAddress: string | null;
   displayName: string | null;
@@ -18,9 +19,8 @@ export type Trader = {
   loginMethod: string | null;
   /** True once a verified Privy identity is bound to this trader. */
   loggedIn: boolean;
-  practiceBalance: number;
-  practiceStartBal: number;
-  mode: "PRACTICE" | "LIVE";
+  /** Whether the app itself can place real on-chain trades. */
+  canTrade: boolean;
 };
 
 type Toast = { id: number; text: string; tone: "ok" | "bad" };

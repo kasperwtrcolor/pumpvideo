@@ -12,7 +12,7 @@
  * Live fills now execute for real: the client asks /api/trade/live/prepare for
  * an unsigned Jupiter swap, signs it with the embedded Privy wallet, and
  * /api/trade/live/confirm verifies the signature on chain before recording it.
- * The flag stays overridable so the app can be pinned to practice-only (set
+ * The flag stays overridable so the app can be pinned to read-only (set
  * LIVE_TRADING_ENABLED=false) without a redeploy of anything else.
  */
 export function liveTradingEnabled(): boolean {

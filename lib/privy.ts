@@ -23,8 +23,8 @@ export function privyAppId(): string | null {
   return process.env.NEXT_PUBLIC_PRIVY_APP_ID?.trim() || null;
 }
 
-/** Whether login is available at all. Everything Privy-related degrades to
- *  practice-mode when this is false, so a missing env var can't brick the app. */
+/** Whether login is available at all. Everything Privy-related degrades
+ *  gracefully when this is false, so a missing env var can't brick the app. */
 export function privyConfigured(): boolean {
   return Boolean(privyAppId() && process.env.PRIVY_APP_SECRET?.trim());
 }
@@ -117,9 +117,9 @@ function profileFromUser(user: User): PrivyProfile {
 /**
  * Bind a verified Privy identity to a trader row.
  *
- * If the caller arrived anonymously (practice mode) we ADOPT that row rather
- * than creating a second one — otherwise logging in silently wipes the practice
- * balance and positions the visitor had been building up.
+ * If the caller arrived anonymously we ADOPT that row rather than creating a
+ * second one — otherwise logging in silently wipes the likes, comments,
+ * uploads and positions the visitor had been building up.
  *
  * `anonHandle` is the cookie's current value; pass null if there is none.
  */

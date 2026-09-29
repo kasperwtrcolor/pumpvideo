@@ -14,15 +14,13 @@ export type TraderRecord = {
   privyDid: string | null;
   email: string | null;
   loginMethod: string | null;
-  practiceBalance: number;
-  practiceStartBal: number;
   createdAt: Date;
 };
 
 /**
  * 128 bits of randomness. The old 32-bit handle was fine when the cookie only
  * held play money, but a session now unlocks a real wallet address and the
- * account's practice history — that needs to be unguessable, not merely unique.
+ * account's activity — that needs to be unguessable, not merely unique.
  */
 function newHandle() {
   return `anon-${randomBytes(16).toString("hex")}`;
@@ -30,8 +28,9 @@ function newHandle() {
 
 /**
  * Resolve the current trader from the session cookie.
- * Anonymous viewers still get a real row — that's what makes practice mode
- * work without a wallet. `created` tells the caller to send a Set-Cookie.
+ * A viewer still gets a real row on first request — that's what lets an
+ * anonymous visit view clips, and what a login is later adopted into.
+ * `created` tells the caller to send a Set-Cookie.
  */
 export async function resolveTrader(): Promise<{
   trader: TraderRecord;
