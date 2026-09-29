@@ -49,13 +49,16 @@ export async function POST(req: NextRequest) {
   }
 
   if (parsed.mode === "LIVE") {
+    // Live fills don't run through here. This endpoint writes practice rows
+    // straight to the DB; a real fill has to be signed by the wallet and
+    // verified on chain, which is what /api/trade/live/* exists for.
     return withTrader(
       {
-        error: "LIVE_NOT_IMPLEMENTED",
+        error: "USE_LIVE_ENDPOINTS",
         detail:
-          "Live fills are not wired. Implement executeLiveFill() in lib/trade-engine.ts and fund a wallet first.",
+          "Live trades are built and verified through /api/trade/live/prepare then /api/trade/live/confirm.",
       },
-      { status: 501, trader, created },
+      { status: 400, trader, created },
     );
   }
 

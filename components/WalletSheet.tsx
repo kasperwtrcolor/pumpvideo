@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useAddFunds, usePrivy } from "@privy-io/react-auth";
 import {
   useExportWallet,
@@ -12,6 +13,7 @@ import { getBase58Decoder } from "@solana/kit";
 import { QRCodeSVG } from "qrcode.react";
 import { useTrader } from "./TraderProvider";
 import { shortAddr } from "@/lib/format";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 const LAMPORTS = 1_000_000_000;
 const BASE_FEE_LAMPORTS = 5_000;
@@ -319,9 +321,32 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
 
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
               Funds in this wallet are yours — PumpClip never holds your keys and cannot
-              move them. Trading inside the app is currently practice-only; top-up and
-              withdraw move real SOL on Solana mainnet.
+              move them. Buys and sells are signed by this wallet and settle on Solana
+              mainnet; switch to practice mode in the trade sheet to trade without SOL.
             </p>
+
+            <div className="mt-4 border-t border-line pt-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+                Legal
+              </div>
+              <div className="mt-2 flex flex-col">
+                {LEGAL_LINKS.map((l) => (
+                  <Link
+                    key={l.doc}
+                    href={l.href}
+                    onClick={onClose}
+                    className="flex items-center justify-between py-1.5 text-[11px] text-muted hover:text-ink"
+                  >
+                    <span>{l.label}</span>
+                    <span aria-hidden>›</span>
+                  </Link>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-muted">
+                Memecoins are highly speculative and can lose all their value. Nothing here
+                is investment advice.
+              </p>
+            </div>
 
             <button
               onClick={() => void doLogout()}

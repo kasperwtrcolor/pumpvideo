@@ -32,10 +32,24 @@ async function main() {
   console.log(`smoke test → ${BASE}\n`);
 
   console.log("pages");
-  for (const p of ["/", "/coins", "/portfolio"]) {
+  for (const p of ["/", "/coins", "/portfolio", "/legal/terms", "/legal/privacy"]) {
     const r = await fetch(`${BASE}${p}`);
     check(p, r.ok, `${r.status}`);
   }
+
+  // The legal docs must actually render their substance, not just return 200.
+  const termsHtml = await (await fetch(`${BASE}/legal/terms`)).text();
+  check(
+    "terms page renders its risk disclosure",
+    termsHtml.includes("total and irreversible loss"),
+    termsHtml.includes("Terms of Service") ? "found" : "missing heading",
+  );
+  const privHtml = await (await fetch(`${BASE}/legal/privacy`)).text();
+  check(
+    "privacy page states we never hold keys",
+    /never receive, store, transmit/i.test(privHtml),
+    privHtml.includes("Privacy Policy") ? "found" : "missing heading",
+  );
 
   console.log("\ncron gate");
   const noAuth = await fetch(`${BASE}/api/sync?limit=1`);
@@ -133,13 +147,56 @@ async function main() {
     `lost ${cost.toFixed(6)} SOL (${((cost / 0.5) * 100).toFixed(2)}%)`,
   );
 
-  console.log("\nlive mode must refuse");
+  console.log("\nlive trading boundary");
+  // /api/trade writes practice rows straight to the DB. A LIVE request must be
+  // turned away here with no transaction ever appearing in the response.
   const live = await fetch(`${BASE}/api/trade`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie: cookie() },
     body: JSON.stringify({ mint, side: "BUY", solAmount: 1, mode: "LIVE" }),
   });
-  check("LIVE fill returns 501, never a fake tx", live.status === 501, `${live.status}`);
+  const liveBody = (await live.json()) as { error?: string; txSig?: string; signature?: string };
+  check(
+    "POST /api/trade with LIVE never hands back a signature",
+    live.status === 400 && !liveBody.txSig && !liveBody.signature,
+    `${live.status} ${liveBody.error ?? ""}`,
+  );
+
+  // The real live path exists, and is closed to anonymous callers.
+  const prep = await fetch(`${BASE}/api/trade/live/prepare`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mint, side: "BUY", solAmount: 0.1 }),
+  });
+  check(
+    "live prepare without a session is rejected",
+    prep.status === 401 || prep.status === 503,
+    `${prep.status}`,
+  );
+
+  const conf = await fetch(`${BASE}/api/trade/live/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mint, side: "BUY", signature: "5".repeat(64) }),
+  });
+  check(
+    "live confirm without a session is rejected",
+    conf.status === 401 || conf.status === 503,
+    `${conf.status}`,
+  );
+
+  // A live prepare that IS authenticated but isn't a real wallet must not build
+  // anything either — the trader has no wallet bound.
+  const prepAnon = await fetch(`${BASE}/api/trade/live/prepare`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: cookie() },
+    body: JSON.stringify({ mint, side: "BUY", solAmount: 0.1 }),
+  });
+  check(
+    "live prepare for a wallet-less trader is refused",
+    prepAnon.status === 401 || prepAnon.status === 409 || prepAnon.status === 503,
+    `${prepAnon.status}`,
+  );
 
   console.log("\nprivy auth boundary");
   // A token that merely *claims* a user must never be accepted. `alg: none` is

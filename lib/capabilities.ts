@@ -9,12 +9,14 @@
 /**
  * Whether real on-chain buys/sells are wired up.
  *
- * `executeLiveFill()` in the trade route is still a deliberate 501 stub, so this
- * defaults to false and the UI stays honest about practice-only trading. Flip
- * the env var once live fills actually execute.
+ * Live fills now execute for real: the client asks /api/trade/live/prepare for
+ * an unsigned Jupiter swap, signs it with the embedded Privy wallet, and
+ * /api/trade/live/confirm verifies the signature on chain before recording it.
+ * The flag stays overridable so the app can be pinned to practice-only (set
+ * LIVE_TRADING_ENABLED=false) without a redeploy of anything else.
  */
 export function liveTradingEnabled(): boolean {
-  return process.env.LIVE_TRADING_ENABLED === "true";
+  return process.env.LIVE_TRADING_ENABLED !== "false";
 }
 
 /** Whether the Privy app id is present, i.e. whether login can be offered. */

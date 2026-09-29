@@ -9,6 +9,7 @@ import { fmtPct, fmtSol, fmtUsd, timeAgo } from "@/lib/format";
 import type { CoinDTO } from "@/lib/types";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { sym } from "@/lib/format";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 export default function PortfolioPage() {
   const { solUsd, refresh } = useTrader();
@@ -141,6 +142,11 @@ export default function PortfolioPage() {
                 {t.side}
               </span>
               <span className="font-bold">${sym(t.symbol)}</span>
+              {t.mode === "LIVE" && (
+                <span className="shrink-0 rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-accent">
+                  LIVE
+                </span>
+              )}
               <span className="text-muted tabular-nums">{fmtSol(t.solAmount)} SOL</span>
               <span className="ml-auto text-[10px] text-muted">{timeAgo(t.at)} ago</span>
             </div>
@@ -149,6 +155,33 @@ export default function PortfolioPage() {
             <div className="px-3 py-6 text-center text-xs text-muted">No fills yet.</div>
           )}
         </div>
+
+        <p className="mt-3 text-[10px] leading-relaxed text-muted">
+          This book shows practice positions. Live trades settle directly in your wallet — the
+          &ldquo;recent fills&rdquo; list above marks them{" "}
+          <span className="font-black text-accent">LIVE</span> and links to the chain.
+        </p>
+
+        {/* footer */}
+        <footer className="mt-10 border-t border-line pt-4">
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
+            {LEGAL_LINKS.map((l) => (
+              <Link key={l.doc} href={l.href} className="text-muted underline hover:text-ink">
+                {l.label}
+              </Link>
+            ))}
+            <Link href="/coins" className="text-muted underline hover:text-ink">
+              Coins
+            </Link>
+            <Link href="/" className="text-muted underline hover:text-ink">
+              Feed
+            </Link>
+          </div>
+          <p className="mt-3 text-[10px] leading-relaxed text-muted">
+            Tokens traded here are highly speculative and can lose all their value. Nothing in
+            PumpClip is investment advice. You trade from your own self-custodial wallet.
+          </p>
+        </footer>
       </div>
 
       {sellCoin && (

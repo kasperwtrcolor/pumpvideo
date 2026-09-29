@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { sym } from "@/lib/format";
+import { artCandidates } from "@/lib/art-url";
 
 /**
  * Coin art with a real fallback.
  *
  * A meaningful share of pump.fun tokens point at ipfs.io / X-CDN URLs that
- * intermittently 403 or time out. Without this, those coins render as an empty
- * circle in the feed — worse than a letter.
+ * intermittently 403 or time out. We rewrite IPFS URLs onto gateways that
+ * answer, and if one candidate still fails we step to the next before giving
+ * up — an empty circle in the feed is worse than a letter.
  */
 export function CoinAvatar({
   src,
@@ -21,16 +23,22 @@ export function CoinAvatar({
   className?: string;
   ring?: boolean;
 }) {
-  const [broken, setBroken] = useState(false);
-  const s = sym(symbol);
+  const s = sym(symbol).slice(0, 2).toUpperCase();
+  const candidates = useMemo(() => artCandidates(src), [src]);
+  const [idx, setIdx] = useState(0);
 
-  if (!src || broken) {
+  // A new src (or a recycled list row) must restart the gateway walk.
+  useEffect(() => setIdx(0), [candidates]);
+
+  const current = candidates[idx];
+
+  if (!current) {
     return (
       <div
         aria-hidden
         className={`flex items-center justify-center bg-panel2 font-black text-muted ${className}`}
       >
-        <span className="text-[0.9em]">{s.slice(0, 2).toUpperCase()}</span>
+        <span className="text-[0.9em]">{s}</span>
       </div>
     );
   }
@@ -38,10 +46,11 @@ export function CoinAvatar({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={src}
+      key={current}
+      src={current}
       alt={s}
       loading="lazy"
-      onError={() => setBroken(true)}
+      onError={() => setIdx((i) => i + 1)}
       className={`object-cover ${ring ? "border-2 border-accent" : ""} ${className}`}
     />
   );
