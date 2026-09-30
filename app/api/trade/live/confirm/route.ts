@@ -240,6 +240,27 @@ export async function POST(req: NextRequest) {
       },
     });
   } else {
+    /**
+     * Partial exit, or a buy.
+     *
+     * A sell has to take the *cost of the tokens that left* out of the basis,
+     * proportionally. It used to leave the basis untouched, so selling half a
+     * position left the remainder carrying the cost of the whole thing — a
+     * position that cost 0.2 SOL and now holds 0.1 SOL of tokens read as a 50%
+     * loss the moment it was halved, and stayed wrong forever.
+     *
+     * Average cost, not FIFO, because the on-chain wallet has no lots to walk:
+     * one balance, one average.
+     */
+    const heldBeforeNum = Number(heldBefore);
+    const soldFraction =
+      side === "SELL" && heldBeforeNum > 0
+        ? Math.min(1, Number(tokenRaw) / heldBeforeNum)
+        : 0;
+    const basisBefore = existing?.costSol ?? 0;
+    const basisAfter =
+      side === "SELL" ? Math.max(0, basisBefore * (1 - soldFraction)) : basisBefore + solAmount;
+
     await prisma.position.upsert({
       where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
       create: {
@@ -250,7 +271,7 @@ export async function POST(req: NextRequest) {
       },
       update: {
         tokenAmount: heldAfter.toString(),
-        ...(side === "BUY" ? { costSol: { increment: solAmount } } : {}),
+        ...(side === "BUY" ? { costSol: { increment: solAmount } } : { costSol: basisAfter }),
       },
     });
   }

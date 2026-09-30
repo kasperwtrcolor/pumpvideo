@@ -14,6 +14,7 @@ import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { getUnread, subscribeUnread } from "@/lib/unread";
+import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
 import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
 
@@ -103,10 +104,10 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   /** Which wall: everyone, or just the people and coins this viewer follows. */
   const [scope, setScope] = useState<Scope>("all");
-  // Login nudge. `watched` counts distinct clips actually played this session.
+  // Login reminder. `watched` counts distinct clips actually played this session.
   const [watched, setWatched] = useState(0);
-  /** The clip-count milestone the viewer has already dismissed the invite for. */
-  const [nudgeDismissedFor, setNudgeDismissedFor] = useState<number | null>(null);
+  /** The clip-count milestone the welcome screen was last reopened on. */
+  const welcomedFor = useRef(0);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [favorited, setFavorited] = useState<Record<string, boolean>>({});
   const [counts, setCounts] = useState<Record<string, Counts>>({});
@@ -490,22 +491,43 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   );
 
   /**
-   * Dismiss the invite *for the milestone it appeared on*.
+   * Reopen the welcome screen at the watch milestone.
    *
-   * Latching per-milestone rather than for the whole session is what re-arms the
-   * ask every WATCH_BEFORE_PROMPT clips: "keep browsing" silences this one, and
-   * the next invite lands when the count crosses the following multiple. A plain
-   * session latch would mean a viewer who waves it away once is never asked
-   * again, however long they keep swiping.
+   * This replaces the old login modal. A signed-out viewer who keeps swiping is
+   * asked to log in every WATCH_BEFORE_PROMPT clips — but by *showing the
+   * welcome screen again*, not by interrupting with a dialog, so the ask is the
+   * same screen the app opens with and the copy never has to talk about counts.
+   *
+   * `welcomedFor` is what keeps it to once per milestone. Without it the effect
+   * would re-fire on every unrelated re-render while `watched` sat on a
+   * multiple, and a viewer who dismissed and carried on would be trapped behind
+   * an overlay that kept springing back.
    */
-  const dismissNudge = useCallback(() => setNudgeDismissedFor(watched), [watched]);
+  useEffect(() => {
+    if (!authEnabled || authenticated) return;
+    if (watched === 0 || watched % WATCH_BEFORE_PROMPT !== 0) return;
+    if (welcomedFor.current === watched) return;
+    welcomedFor.current = watched;
+    setWelcomeOpen(true);
+  }, [watched, authEnabled, authenticated]);
 
-  const showLoginNudge =
-    authEnabled &&
-    !authenticated &&
-    watched > 0 &&
-    watched % WATCH_BEFORE_PROMPT === 0 &&
-    nudgeDismissedFor !== watched;
+  // Subscribe so the feed knows to stand the video down while the welcome
+  // screen is up. Pausing is the point: the overlay is opaque, so a clip
+  // playing audio behind it is a sound with no picture.
+  const welcomeOpen = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
+
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return;
+    if (welcomeOpen) {
+      root.querySelectorAll("video").forEach((v) => v.pause());
+      return;
+    }
+    // Back to the feed: whatever is on screen should be playing again. The
+    // observer will not re-fire for a slide that never moved.
+    const vid = root.querySelector(`[data-index="${activeRef.current}"] video`);
+    if (vid instanceof HTMLVideoElement) vid.play().catch(() => {});
+  }, [welcomeOpen]);
 
   return (
     <div className="relative h-full">
@@ -664,41 +686,6 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             }))
           }
         />
-      )}
-
-      {showLoginNudge && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="login-nudge-title"
-          className="fixed inset-0 z-[75] grid place-items-center bg-black/80 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
-        >
-          <button aria-label="Dismiss" className="absolute inset-0" onClick={dismissNudge} />
-          <div className="relative w-full max-w-sm rounded-2xl border border-line bg-panel p-5 text-center">
-            <h2 id="login-nudge-title" className="text-base font-bold tracking-tight">
-              Log in to keep watching
-            </h2>
-            <p className="mt-2 text-[12px] leading-relaxed text-muted">
-              Log in with email, Google or X. A self-custodial Solana wallet is created for
-              you — then any clip in the feed is one tap to buy.
-            </p>
-            <button
-              onClick={() => {
-                dismissNudge();
-                login();
-              }}
-              className="burn-gradient mt-4 w-full rounded-xl py-3 text-sm font-black tracking-wide text-black active:scale-[0.99]"
-            >
-              Log in
-            </button>
-            <button
-              onClick={dismissNudge}
-              className="mt-2 w-full rounded-xl border border-line py-2.5 text-[12px] font-bold text-muted hover:text-ink"
-            >
-              Keep browsing
-            </button>
-          </div>
-        </div>
       )}
     </div>
   );

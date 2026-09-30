@@ -79,13 +79,12 @@ async function main() {
     !/(❤️|🤍|💬|🔊|🔇)/u.test(home),
   );
 
-  // The welcome screen. It must be offered to a first-time visitor and withheld
-  // from one who has already dismissed it — and the decision has to happen in the
-  // server render, which is why the cookie is sent with the request rather than
-  // being applied by client script after the fact.
+  // The welcome screen. It is served on *every* load of `/` — a refresh is a
+  // fresh decision — so the check is that nothing suppresses it, including a
+  // stale dismissal cookie from the days when it was a once-a-year overlay.
   console.log("\nlanding");
   check(
-    "a first-time visitor is served the welcome screen",
+    "every visit is served the welcome screen",
     home.includes("Where clips") && home.includes("Just watch"),
   );
   check(
@@ -97,9 +96,17 @@ async function main() {
     await fetch(`${BASE}/`, { headers: { cookie: "pumpclip_welcome=1" } })
   ).text();
   check(
-    "a returning visitor is not served the welcome screen",
-    !returning.includes("Just watch") && returning.includes("aria-label=\"Feed\""),
+    "a stored dismissal does not suppress the welcome screen",
+    returning.includes("Where clips") && returning.includes("Just watch"),
     `${returning.length}b`,
+  );
+  check(
+    "the feed is rendered underneath the welcome screen",
+    home.includes('aria-label="Feed"') && returning.includes('aria-label="Feed"'),
+  );
+  check(
+    "the login modal is gone",
+    !home.includes("Log in to keep watching") && !home.includes("Keep browsing"),
   );
   // The mosaic is real artwork, not placeholder blocks: every tile must be
   // pulling from a catalogue URL. A wall of gradients would mean the fetch that

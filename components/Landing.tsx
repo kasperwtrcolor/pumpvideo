@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useAuth } from "./AuthBridge";
 import type { LandingTile } from "@/lib/landing";
+import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
 import { PersonIcon } from "./Icons";
 
 /**
- * The welcome screen — the first thing a signed-out visitor sees.
+ * The welcome screen — the first thing a signed-out visitor sees, and the thing
+ * a signed-out viewer is sent back to every few clips.
  *
  * A wall of live coin art drifting past the viewport, with the pitch and a
  * single decision: log in, or just watch.
@@ -14,8 +16,11 @@ import { PersonIcon } from "./Icons";
  * The artwork arrives already assembled (see lib/landing.ts) because it has to
  * be in the first paint; fetching it here would show gradients first and real
  * tokens a moment later. This component only decides what happens next.
+ *
+ * Whether it is open lives in lib/welcome.ts rather than in local state,
+ * because the feed reopens it at the watch milestone and has no other way to
+ * reach in here.
  */
-const SEEN_COOKIE = "pumpclip_welcome";
 
 /** Columns in the mosaic, and how long each takes to scroll a full loop. */
 const COLUMNS: { dir: "up" | "down"; seconds: number }[] = [
@@ -35,7 +40,7 @@ const PER_COLUMN = 9;
 
 export function Landing({ tiles }: { tiles: LandingTile[] }) {
   const { authenticated, enabled, login } = useAuth();
-  const [dismissed, setDismissed] = useState(false);
+  const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
 
   const columns = useMemo(() => {
     const cols: LandingTile[][] = COLUMNS.map(() => []);
@@ -49,17 +54,12 @@ export function Landing({ tiles }: { tiles: LandingTile[] }) {
     return cols;
   }, [tiles]);
 
-  const dismiss = useCallback(() => {
-    setDismissed(true);
-    const expires = new Date();
-    expires.setFullYear(expires.getFullYear() + 1);
-    document.cookie = `${SEEN_COOKIE}=1; path=/; expires=${expires.toUTCString()}; samesite=lax`;
-  }, []);
+  const dismiss = useCallback(() => setWelcomeOpen(false), []);
 
   // `authenticated` short-circuits rather than being mirrored into state: signing
   // in is exactly what this screen asks for, so the moment it happens the screen
   // is done and disappears on the same render — no effect, no second pass.
-  if (dismissed || authenticated) return null;
+  if (!open || authenticated) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex justify-center bg-bg">

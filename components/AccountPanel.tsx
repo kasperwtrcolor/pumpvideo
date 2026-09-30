@@ -14,12 +14,22 @@ import { getBase58Decoder } from "@solana/kit";
 import { QRCodeSVG } from "qrcode.react";
 import { useTrader } from "./TraderProvider";
 import { CheckIcon, ExternalIcon } from "./Icons";
-import { shortAddr } from "@/lib/format";
+import { fmtUsd, shortAddr } from "@/lib/format";
 import { LEGAL_LINKS } from "@/lib/legal";
 
 const LAMPORTS = 1_000_000_000;
 const BASE_FEE_LAMPORTS = 5_000;
 const EXPLORER = "https://explorer.solana.com";
+
+/**
+ * fmtUsd, but a flat zero reads as money rather than "$0.0000".
+ *
+ * fmtUsd drops to four decimals below a dollar so sub-cent balances stay
+ * visible, which is right for a price and wrong for a total that happens to be
+ * nothing. Anything non-zero still goes through fmtUsd unchanged, so the
+ * portfolio total stays character-for-character identical to the header's.
+ */
+const money = (n: number | null) => (n == null ? "—" : n === 0 ? "$0.00" : fmtUsd(n));
 
 /** Solana mainnet genesis hash — the CAIP-2 chain id Privy's funding flow wants. */
 const SOLANA_MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
@@ -52,7 +62,7 @@ export function AccountPanel() {
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { exportWallet } = useExportWallet();
   const { addFunds } = useAddFunds();
-  const { trader, refresh, toast, solUsd } = useTrader();
+  const { trader, account, refresh, toast, solUsd } = useTrader();
 
   const [view, setView] = useState<View>("main");
   const [balance, setBalance] = useState<number | null>(null);
@@ -278,6 +288,27 @@ export function AccountPanel() {
                 </div>
               )}
             </div>
+
+            {/* The header shows a *portfolio* — cash plus the value of what you
+                hold — so this card has to reconcile with it. Reading only the
+                SOL balance here made the same account look like $18 in one
+                place and $30 in another, with nothing to say why. */}
+            {account && (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-line bg-panel2 px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    Portfolio
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-muted">
+                    cash {money(account.walletSol == null ? null : account.walletSol * solUsd)} +
+                    positions {money(account.holdingsValue * solUsd)}
+                  </div>
+                </div>
+                <div className="shrink-0 text-[15px] font-black tabular-nums">
+                  {money(((account.walletSol ?? 0) + account.holdingsValue) * solUsd)}
+                </div>
+              </div>
+            )}
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
