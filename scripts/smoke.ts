@@ -506,6 +506,17 @@ async function main() {
   });
   check("upload presign without a session is rejected", presign.status === 401, `${presign.status}`);
 
+  // The upload route must accept a token handed over from the feed. The page is
+  // client-rendered, so the prefill itself is a browser behaviour and cannot be
+  // asserted here — but the route it is reached by has to exist and render.
+  const uploadPage = await fetch(`${BASE}/upload?token=${mint}`);
+  const uploadHtml = await uploadPage.text();
+  check(
+    "the upload route renders when a token is handed to it",
+    uploadPage.ok && uploadHtml.includes("Upload a clip"),
+    `${uploadPage.status} ${uploadHtml.length}b`,
+  );
+
   console.log("\nlive trading boundary");
 
   // The real live path exists, and is closed to anonymous callers.

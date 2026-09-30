@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { useTrader } from "@/components/TraderProvider";
@@ -52,11 +52,31 @@ export default function UploadPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [tokenAddress, setTokenAddress] = useState("");
+  /**
+   * The token handed over by the feed's "clip" action, if any.
+   *
+   * Held separately from `tokenAddress` so the field can be *locked* while it is
+   * set: arriving here from a clip means the token is already decided, and the
+   * one thing left to do is choose a video. Editing the address is still one tap
+   * away ("change"), but it is no longer the default question the page asks.
+   */
+  const [tokenFromUrl, setTokenFromUrl] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [pct, setPct] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [done, setDone] = useState<{ symbol: string; mint: string } | null>(null);
+
+  // Read `?token=` off the URL rather than through `useSearchParams`: that hook
+  // forces a Suspense boundary and de-opts the page to dynamic rendering for
+  // what is a one-shot read. `location` is only touched after hydration, so the
+  // prerender is unaffected.
+  useEffect(() => {
+    const hint = new URLSearchParams(window.location.search).get("token")?.trim();
+    if (!hint) return;
+    setTokenFromUrl(hint);
+    setTokenAddress(hint);
+  }, []);
 
   const pick = useCallback(
     (f: File | null) => {
@@ -139,9 +159,9 @@ export default function UploadPage() {
         <div className="mx-auto max-w-md px-4 pb-24 pt-6 text-center">
           <h1 className="text-2xl font-black tracking-tight">Upload a clip</h1>
           <p className="mt-2 text-xs leading-relaxed text-muted">
-            Upload a short vertical video, point it at a token address, and anyone who buys that
-            token through your clip pays you 1% of the buy. You need an account so the fee knows
-            where to go.
+            {tokenFromUrl
+              ? "Log in and your video goes straight onto the token you were just watching — and you earn 1% of every buy that comes through it."
+              : "Upload a short vertical video, point it at a token address, and anyone who buys that token through your clip pays you 1% of the buy. You need an account so the fee knows where to go."}
           </p>
           <button
             onClick={() => void login()}
@@ -159,9 +179,32 @@ export default function UploadPage() {
       <div className="mx-auto max-w-md px-4 pb-24 pt-4">
         <h1 className="text-2xl font-black tracking-tight">Upload a clip</h1>
         <p className="mt-1 text-xs leading-relaxed text-muted">
-          Bind a video to a token address. Buyers who arrive through your clip pay you 1% of the
-          buy, taken in SOL at the same moment as their swap.
+          {tokenFromUrl
+            ? "Your clip will be bound to the token you were watching. Buyers who arrive through it pay you 1% of the buy, taken in SOL at the same moment as their swap."
+            : "Bind a video to a token address. Buyers who arrive through your clip pay you 1% of the buy, taken in SOL at the same moment as their swap."}
         </p>
+
+        {/* The token carried in from the feed. Shown as a settled fact rather
+            than a field to fill in, because it is one: they already chose this
+            coin by tapping "clip" on it. */}
+        {tokenFromUrl && (
+          <div className="mt-5 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-accent">
+              Clipping for this token
+            </div>
+            <div className="mt-1 break-all font-mono text-[12px] text-ink">{tokenFromUrl}</div>
+            <div className="mt-2 flex items-center gap-3">
+              <span className="text-[10px] text-muted">Carried over from the clip you watched.</span>
+              <button
+                onClick={() => setTokenFromUrl(null)}
+                disabled={busy}
+                className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[10px] font-bold text-muted hover:text-ink disabled:opacity-50"
+              >
+                change
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* file picker */}
         <div className="mt-5">
@@ -197,24 +240,28 @@ export default function UploadPage() {
           </div>
         </div>
 
-        {/* token address */}
-        <div className="mt-5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-muted">
-            token address
+        {/* token address — only when it has *not* been handed over by the feed.
+            With it locked there is exactly one question left on this page:
+            which video. */}
+        {!tokenFromUrl && (
+          <div className="mt-5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted">
+              token address
+            </div>
+            <input
+              value={tokenAddress}
+              onChange={(e) => setTokenAddress(e.target.value)}
+              placeholder="paste the SPL mint address"
+              spellCheck={false}
+              disabled={busy}
+              className="mt-2 w-full rounded-xl border border-line bg-panel2 px-3 py-3 font-mono text-[12px] outline-none focus:border-accent disabled:opacity-60"
+            />
+            <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
+              The mint of the coin this clip is about. If we have not indexed it yet we will pull
+              its live market data automatically.
+            </p>
           </div>
-          <input
-            value={tokenAddress}
-            onChange={(e) => setTokenAddress(e.target.value)}
-            placeholder="paste the SPL mint address"
-            spellCheck={false}
-            disabled={busy}
-            className="mt-2 w-full rounded-xl border border-line bg-panel2 px-3 py-3 font-mono text-[12px] outline-none focus:border-accent disabled:opacity-60"
-          />
-          <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
-            The mint of the coin this clip is about. If we have not indexed it yet we will pull its
-            live market data automatically.
-          </p>
-        </div>
+        )}
 
         {/* caption */}
         <div className="mt-5">

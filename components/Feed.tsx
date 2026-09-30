@@ -12,7 +12,7 @@ import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } f
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
-import { CommentIcon, HeartIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
+import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
 
 type Sort = "hot" | "new" | "top";
@@ -764,10 +764,12 @@ function ClipPanel({
 
   // Taps that land on a control are that control's business — the rail sits
   // inside this section, so without the guard a "like" tap would also count as
-  // the first tap of a double-tap.
+  // the first tap of a double-tap. Links are included: the "clip this token"
+  // action is an anchor, and without it a tap would both navigate and register
+  // a media tap on the way out.
   const onSectionClick = useCallback(
     (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("button")) return;
+      if ((e.target as HTMLElement).closest("button, a")) return;
       tapMedia();
     },
     [tapMedia],
@@ -1039,6 +1041,20 @@ function ClipPanel({
           >
             buy ${sym(coin.symbol)}
           </button>
+          {/* Make your own clip for *this* token.
+              The hard part of posting used to be finding the mint of the coin
+              you were looking at and pasting it into the upload form. From here
+              the address is carried in the URL, so the form arrives with the
+              token already bound and the video is the only decision left. */}
+          <Link
+            href={`/upload?token=${encodeURIComponent(coin.mint)}`}
+            title={`Upload a clip for $${sym(coin.symbol)}`}
+            aria-label={`Upload a clip for $${sym(coin.symbol)}`}
+            className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-black/45 px-3 py-3 text-[11px] font-bold text-white/85 active:scale-[0.98]"
+          >
+            <PlusIcon className="h-4 w-4" />
+            clip
+          </Link>
           <button
             onClick={() => {
               navigator.clipboard?.writeText(coin.mint);
