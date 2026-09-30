@@ -52,6 +52,15 @@ model Coin {
 
   complete    Boolean @default(false) // bonding curve filled -> graduated to AMM
   isBanned    Boolean @default(false) // pump.fun moderation flag; hide from feed
+  /// Retention state, set by the dead-token sweep (lib/retention.ts) when a coin
+  /// has shown no trading volume for the grace period; cleared automatically the
+  /// moment it trades again. Non-null means "hidden from every list and count".
+  ///
+  /// Deliberately NOT `isBanned`: that column mirrors pump.fun's own moderation
+  /// flag and is rewritten on every ingest and keeper tick, so retention state
+  /// stored there would be silently cleared by the next sync — a bug that would
+  /// look like "hiding just doesn't work" rather than "something overwrote it".
+  hiddenAt    DateTime?
   poolAddress String?
   creator     String?
   twitter     String?
@@ -70,6 +79,9 @@ model Coin {
   @@index([marketCapSol])
   @@index([volatility5m])
   @@index([createdAt])
+  /// Every visibility-filtered read touches this, and the retention sweep scans
+  /// it to find what is currently hidden.
+  @@index([hiddenAt])
 }
 
 /// Price history. Written by the market keeper on every sync; powers the

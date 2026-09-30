@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { withTrader, serializeCoin } from "@/lib/api";
+import { VISIBLE_COIN } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
           : { marketCapSol: "desc" as const };
 
   const where = {
-    isBanned: false,
+    ...VISIBLE_COIN,
     ...(graduatedOnly ? { complete: true } : {}),
     ...(q
       ? {

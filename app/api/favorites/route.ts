@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
 import { serializeClip, serializeCoin, positionLite } from "@/lib/api";
 import { solUsd } from "@/lib/sol-price";
+import { isVisibleCoin } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
   // is the honest outcome, not a bug.
   // Positions for the coins on this page, so each row can be coloured against
   // the viewer's own entry price rather than a generic 24h change.
-  const coinIds = rows.filter((r) => r.clip.ready && !r.clip.coin.isBanned).map((r) => r.clip.coinId);
+  const coinIds = rows.filter((r) => r.clip.ready && isVisibleCoin(r.clip.coin)).map((r) => r.clip.coinId);
   const positions = coinIds.length
     ? await prisma.position.findMany({
         where: { traderId: trader.id, coinId: { in: coinIds } },
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
   const positionByCoin = new Map(positions.map((p) => [p.coinId, p]));
 
   const items = rows
-    .filter((r) => r.clip.ready && !r.clip.coin.isBanned)
+    .filter((r) => r.clip.ready && isVisibleCoin(r.clip.coin))
     .map((r) => {
       const pos = positionByCoin.get(r.clip.coinId);
       return {

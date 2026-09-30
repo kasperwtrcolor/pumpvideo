@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { readTrader } from "@/lib/session";
 import { USER_CARD_SELECT, toUserCard } from "@/lib/social";
+import { VISIBLE_COIN } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.coin.findMany({
       where: {
-        isBanned: false,
+        ...VISIBLE_COIN,
         OR: [
           { symbol: { contains: like, mode: "insensitive" } },
           { name: { contains: like, mode: "insensitive" } },

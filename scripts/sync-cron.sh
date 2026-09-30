@@ -25,12 +25,13 @@ set -a; source "$ENV_FILE"; set +a
 
 # Bounded so a hung network call can't stack up overlapping cron runs.
 #
-# `--ingest 8` also pulls the newest 8 launched tokens each tick and runs them
-# through the filters in lib/ingest.ts (min market cap, must have art, not
-# banned). That is what keeps the feed from being a frozen snapshot of the day
-# the catalog was seeded. 8 per 5 minutes is deliberately modest: pump.fun
-# rate-limits its ranked list hard, and the price sweep in the same tick shares
-# that budget.
+# `--ingest 8` pulls up to 8 *surviving* launches each tick. The candidate page is
+# wider (50) because it is filtered by age and most of it is rejected — see
+# MIN_AGE_MINUTES in lib/ingest.ts. The rest of the gates (min market cap, must
+# have art, not banned) are unchanged. That is what keeps the feed from being a
+# frozen snapshot of the day the catalog was seeded. 8 per 5 minutes is
+# deliberately modest: pump.fun rate-limits its ranked list hard, and the price
+# sweep in the same tick shares that budget.
 #
 # `--reconcile 50` re-reads the chain for up to 50 open positions and corrects
 # any whose stored holding has drifted from what the wallet really owns. A

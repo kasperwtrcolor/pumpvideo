@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import type { Prisma } from "@prisma/client";
+import { VISIBLE_COIN } from "@/lib/visibility";
 import { prisma } from "@/lib/db";
 import { withTrader, serializeCoin, serializeClip, positionLite } from "@/lib/api";
 import { readTrader, resolveTrader } from "@/lib/session";
@@ -154,7 +155,7 @@ export async function GET(req: NextRequest) {
    * instead of nothing. Still honest: every clip served is a real clip.
    */
   const buildWhere = (gate: boolean) => {
-    const coin: Prisma.CoinWhereInput = mint ? { mint } : { isBanned: false };
+    const coin: Prisma.CoinWhereInput = mint ? { mint } : { ...VISIBLE_COIN };
     if (gate && !mint) {
       // Hot is a gainers board: coins that are *up* over the last five minutes,
       // biggest rise first. A coin that fell is not hot, it is just down.
@@ -206,7 +207,7 @@ export async function GET(req: NextRequest) {
     const viewer = await readTrader();
     if (viewer) {
       const own = await prisma.clip.findMany({
-        where: { ready: true, uploadedById: viewer.id, coin: { isBanned: false } },
+        where: { ready: true, uploadedById: viewer.id, coin: { ...VISIBLE_COIN } },
         select: { id: true },
       });
       ownIds.push(...own.map((c) => c.id));

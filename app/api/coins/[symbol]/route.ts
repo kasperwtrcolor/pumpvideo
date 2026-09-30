@@ -4,6 +4,7 @@ import { withTrader, serializeCoin, serializeClip } from "@/lib/api";
 import { rawTokensToUi } from "@/lib/bonding-curve";
 import { resolveTrader } from "@/lib/session";
 import { publicAuthor } from "@/lib/social";
+import { VISIBLE_COIN } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function GET(
   const { trader, created } = await resolveTrader();
 
   const coin = await prisma.coin.findFirst({
-    where: { OR: [{ symbol }, { mint: symbol }] },
+    where: { ...VISIBLE_COIN, OR: [{ symbol }, { mint: symbol }] },
     include: { clips: { orderBy: { rank: "desc" }, take: 12 } },
   });
 

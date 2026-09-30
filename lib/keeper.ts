@@ -33,6 +33,7 @@ import { ingestNewTokens } from "./ingest";
 import { reconcilePositions } from "./reconcile";
 import type { ReconcileResult } from "./reconcile";
 import { solUsd } from "./sol-price";
+import { VISIBLE_COIN } from "./visibility";
 
 export type SyncResult = {
   ok: boolean;
@@ -172,7 +173,7 @@ export async function runKeeper(opts: {
   const coins = opts.mints?.length
     ? await prisma.coin.findMany({ where: { mint: { in: opts.mints } } })
     : await prisma.coin.findMany({
-        where: { isBanned: false },
+        where: { ...VISIBLE_COIN },
         orderBy: { marketCapSol: "desc" },
         take: opts.limit,
       });

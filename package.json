@@ -17,6 +17,7 @@
     "verify-assets": "tsx scripts/verify-assets.ts",
     "diag": "tsx scripts/diag-sync.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "retention": "tsx scripts/retention.ts",
     "scan-secrets": "tsx scripts/scan-secrets.ts",
     "seed": "tsx scripts/ingest.ts --top 40 --new 40 && tsx scripts/gen-clips.ts --limit 200 --concurrency 2"
   },

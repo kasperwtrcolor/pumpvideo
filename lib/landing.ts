@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { artUrl } from "@/lib/art-url";
+import { VISIBLE_COIN } from "@/lib/visibility";
 
 /**
  * The artwork for the welcome screen's wall.
@@ -31,7 +32,7 @@ export async function landingTiles(): Promise<LandingTile[]> {
     // Largest first: recognition is the point of the wall, and the bigger tokens
     // are the ones with finished, non-blank artwork.
     prisma.coin.findMany({
-      where: { isBanned: false, imageUrl: { not: null } },
+      where: { ...VISIBLE_COIN, imageUrl: { not: null } },
       orderBy: { marketCapSol: "desc" },
       take: ART_TILES,
       select: { imageUrl: true },

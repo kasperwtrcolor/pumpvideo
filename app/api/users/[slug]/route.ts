@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { readTrader } from "@/lib/session";
 import { serializeClip, serializeCoin } from "@/lib/api";
 import { USER_CARD_SELECT, toUserCard } from "@/lib/social";
+import { VISIBLE_COIN } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
 
   const [clips, clipCount, following, viewerFollows] = await Promise.all([
     prisma.clip.findMany({
-      where: { uploadedById: trader.id, ready: true, coin: { isBanned: false } },
+      where: { uploadedById: trader.id, ready: true, coin: { ...VISIBLE_COIN } },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: 24,
       include: { coin: true },

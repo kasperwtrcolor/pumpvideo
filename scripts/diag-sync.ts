@@ -8,10 +8,11 @@
  */
 import { prisma } from "../lib/db";
 import { fetchCoinsByMints, fetchCoins, toCoinRecord } from "../lib/pumpfun";
+import { VISIBLE_COIN } from "../lib/visibility";
 
 async function main() {
   const coins = await prisma.coin.findMany({
-    where: { isBanned: false, complete: false },
+    where: { ...VISIBLE_COIN, complete: false },
     orderBy: { marketCapSol: "desc" },
     take: 10,
   });
