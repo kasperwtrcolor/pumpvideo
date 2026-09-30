@@ -41,8 +41,8 @@ import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
  * late one: the user sees a working token disappear with no explanation.
  */
 
-/** Default grace period. A token gets a week to prove it is worth keeping. */
-export const DEFAULT_GRACE_DAYS = 7;
+/** Default grace period. A token gets three days to prove it is worth keeping. */
+export const DEFAULT_GRACE_DAYS = 3;
 
 /** How many candidates one pass may consider, so a run stays bounded. */
 export const DEFAULT_LIMIT = 2000;

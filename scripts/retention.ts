@@ -1,7 +1,7 @@
 /**
  * Dead-token retention sweep.
  *
- *   npx tsx scripts/retention.ts                    # dry run, default 7-day grace
+ *   npx tsx scripts/retention.ts                    # dry run, default 3-day grace
  *   npx tsx scripts/retention.ts --apply            # soft-hide the dead ones
  *   npx tsx scripts/retention.ts --apply --hard     # delete them outright
  *   npx tsx scripts/retention.ts --grace-days 14    # longer grace

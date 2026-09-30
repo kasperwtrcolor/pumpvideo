@@ -47,7 +47,7 @@ fi
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
 
-if ! timeout 300 npm run retention --silent -- --apply --hard --grace-days 7; then
+if ! timeout 300 npm run retention --silent -- --apply --hard --grace-days 3; then
   echo "[$(date -Is)] retention failed, was refused, or timed out" >&2
   exit 1
 fi
