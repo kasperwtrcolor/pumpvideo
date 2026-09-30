@@ -53,7 +53,7 @@ export function AppHeader() {
           <BalanceBlock account={account} solUsd={solUsd} />
         </Link>
       ) : (
-        <Link href="/" className="shrink-0 py-1" aria-label="Pogo — feed">
+        <Link href="/" className="shrink-0 py-1" aria-label="Pemp — feed">
           <LogoLockup size={24} />
         </Link>
       )}

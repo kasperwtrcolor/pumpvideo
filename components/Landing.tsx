@@ -101,7 +101,7 @@ export function Landing({ tiles }: { tiles: LandingTile[] }) {
           <div className="rise-in flex items-center gap-2.5" style={{ animationDelay: "40ms" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.svg" alt="" width={34} height={34} className="rounded-[10px]" />
-            <span className="text-[15px] font-black tracking-[0.18em] text-ink">POGO</span>
+            <span className="text-[15px] font-black tracking-[0.18em] text-ink">PEMP</span>
           </div>
 
           <h1
@@ -143,7 +143,7 @@ export function Landing({ tiles }: { tiles: LandingTile[] }) {
             style={{ animationDelay: "310ms" }}
           >
             {enabled
-              ? "Email, Google or X. Pogo never holds your keys or your funds."
+              ? "Email, Google or X. Pemp never holds your keys or your funds."
               : "Watch for free. Nothing to install."}
           </p>
         </div>

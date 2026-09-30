@@ -68,7 +68,7 @@ function AccountInner() {
     <Shell>
       <h1 className="text-2xl font-black tracking-tight">Account</h1>
       <p className="mt-1 text-xs text-muted">
-        Your wallet and your live book. Keys stay with you — Pogo never holds them.
+        Your wallet and your live book. Keys stay with you — Pemp never holds them.
       </p>
 
       <div className="mt-4">
@@ -99,7 +99,7 @@ function AccountInner() {
         </div>
         <p className="mt-3 text-[10px] leading-relaxed text-muted">
           Tokens traded here are highly speculative and can lose all their value. Nothing in
-          Pogo is investment advice. You trade from your own self-custodial wallet.
+          Pemp is investment advice. You trade from your own self-custodial wallet.
         </p>
       </footer>
     </Shell>

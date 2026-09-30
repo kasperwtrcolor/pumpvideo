@@ -120,8 +120,8 @@ async function main() {
   // stray "PUMPCLIP" in a header or a meta tag is exactly the kind of thing that
   // survives a search-and-replace and ships.
   check(
-    "the app is branded Pogo, with no PumpClip left behind",
-    home.includes("POGO") && !home.includes("PUMPCLIP"),
+    "the app is branded Pemp, with no prior name left behind",
+    home.includes("PEMP") && !home.includes("PUMPCLIP") && !home.includes("POGO"),
     "wordmark",
   );
 

@@ -20,6 +20,8 @@ import { setBucketCors, storageBucket, UPLOAD_META_HEADER } from "@/lib/gcs";
 const DEFAULT_ORIGINS = [
   "https://pumpvideo.vercel.app",
   "https://pumpclip.vercel.app",
+  "https://pemp.fun",
+  "https://www.pemp.fun",
   "http://localhost:3000",
 ];
 

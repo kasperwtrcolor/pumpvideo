@@ -341,7 +341,7 @@ export function AccountPanel() {
             </button>
 
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
-              Funds in this wallet are yours — Pogo never holds your keys and cannot
+              Funds in this wallet are yours — Pemp never holds your keys and cannot
               move them. Buys and sells are signed by this wallet and settle on Solana
               mainnet.
             </p>
@@ -514,7 +514,7 @@ export function AccountPanel() {
             </div>
             <p className="mt-3 text-[11px] leading-relaxed text-muted">
               Privy will open a secure window to reveal the key. It renders on a separate
-              domain from Pogo, so this app can never read it.
+              domain from Pemp, so this app can never read it.
             </p>
             <button
               onClick={() => void doExport()}

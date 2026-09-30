@@ -359,7 +359,7 @@ export function BuySheet({
               Back
             </button>
             <p className="mt-3 text-center text-[10px] leading-relaxed text-muted">
-              Your wallet signs this locally — Pogo never sees your key. Amounts are re-read
+              Your wallet signs this locally — Pemp never sees your key. Amounts are re-read
               from the chain when the trade is recorded.
             </p>
           </div>

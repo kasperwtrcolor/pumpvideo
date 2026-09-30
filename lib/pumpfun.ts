@@ -6,7 +6,7 @@
  */
 
 const FEED_API = "https://frontend-api-v3.pump.fun";
-const UA = "Mozilla/5.0 (compatible; pogo/0.1)";
+const UA = "Mozilla/5.0 (compatible; pemp/0.1)";
 
 export type PumpCoin = {
   mint: string;

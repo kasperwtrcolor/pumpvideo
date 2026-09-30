@@ -3,7 +3,7 @@
 import { useId } from "react";
 
 /**
- * The Pogo mark: a "P" whose counter is a play triangle — the brand initial
+ * The Pemp mark: a "P" whose counter is a play triangle — the brand initial
  * and the product's core action (watch a clip) in one glyph.
  *
  * Gradients carry document-global ids, so `useId()` keeps multiple instances
@@ -21,7 +21,7 @@ export function LogoMark({ size = 22, className = "" }: { size?: number; classNa
       viewBox="0 0 64 64"
       className={className}
       role="img"
-      aria-label="Pogo"
+      aria-label="Pemp"
     >
       <defs>
         <linearGradient id={g} x1="6" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
@@ -51,7 +51,7 @@ export function LogoLockup({ size = 22 }: { size?: number }) {
   return (
     <span className="flex items-center gap-1.5">
       <LogoMark size={size} />
-      <span className="text-[13px] font-black tracking-[0.14em]">POGO</span>
+      <span className="text-[13px] font-black tracking-[0.14em]">PEMP</span>
     </span>
   );
 }

@@ -9,17 +9,17 @@ import { PrivySessionSync } from "@/components/PrivySessionSync";
 import { solUsd } from "@/lib/sol-price";
 
 export const metadata: Metadata = {
-  title: "Pogo — every clip is a coin you can buy",
+  title: "Pemp — every clip is a coin you can buy",
   description:
     "Swipe short clips. Every clip has its own coin you can buy — real on-chain Solana trading from a wallet you control.",
   manifest: "/manifest.webmanifest",
-  applicationName: "Pogo",
+  applicationName: "Pemp",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
   },
   openGraph: {
-    title: "Pogo",
+    title: "Pemp",
     description: "Swipe short clips. Every clip is a coin you can buy.",
     images: ["/og-icon.png"],
   },

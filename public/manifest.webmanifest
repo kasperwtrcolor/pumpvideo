@@ -1,6 +1,6 @@
 {
-  "name": "Pogo",
-  "short_name": "Pogo",
+  "name": "Pemp",
+  "short_name": "Pemp",
   "description": "Swipe short clips. Every clip has its own coin you can buy.",
   "start_url": "/",
   "display": "standalone",

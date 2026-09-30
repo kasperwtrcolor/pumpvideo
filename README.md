@@ -1,4 +1,4 @@
-# Pogo
+# Pemp
 
 **Every clip is a coin you can buy.** A TikTok-style vertical feed where each clip is
 bound to a Solana memecoin, with one-tap buying inline — practice with play money
@@ -212,7 +212,7 @@ a scheduler. It is idempotent.
 
 ## The TikTok ingest seam
 
-Pogo's real moat is scraping viral clips and binding them to coins. This repo
+Pemp's real moat is scraping viral clips and binding them to coins. This repo
 deliberately stops short of that — synthesising a clip from the coin's own art
 instead, which keeps the pipeline shape identical:
 
