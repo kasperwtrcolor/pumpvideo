@@ -31,7 +31,13 @@ set -a; source "$ENV_FILE"; set +a
 # the catalog was seeded. 8 per 5 minutes is deliberately modest: pump.fun
 # rate-limits its ranked list hard, and the price sweep in the same tick shares
 # that budget.
-if ! timeout 120 npm run sync --silent -- --ingest 8; then
+#
+# `--reconcile 50` re-reads the chain for up to 50 open positions and corrects
+# any whose stored holding has drifted from what the wallet really owns. A
+# wallet can move without the app (a swap on pump.fun directly, a transfer out),
+# and a mirror built from our own fill log can never notice. This is what makes
+# the book self-correcting instead of wrong forever.
+if ! timeout 180 npm run sync --silent -- --ingest 8 --reconcile 50; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi

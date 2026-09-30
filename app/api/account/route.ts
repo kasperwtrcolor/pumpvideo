@@ -195,7 +195,11 @@ export async function GET() {
         symbol: r.symbol,
         sol: r._sum.creatorFeeSol ?? 0,
       })),
-      positions: rows,
+      // Only what is actually held. A position row outlives the holding on
+      // purpose — it is where realized PnL for a closed trade survives — so
+      // sending every row would list coins the wallet no longer has as
+      // "positions", which is exactly the confusion this book exists to avoid.
+      positions: rows.filter((r) => r.tokens > 0),
       trades: recentTrades.map((t) => ({
         id: t.id,
         side: t.side,

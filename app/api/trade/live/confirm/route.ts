@@ -216,14 +216,39 @@ export async function POST(req: NextRequest) {
   });
 
   // ---- keep the position mirror in step with the wallet -------------------
+  //
+  // The wallet is the authority here, not our own arithmetic. `preTok` and
+  // `postTok` above are the wallet's real balances for this mint immediately
+  // before and after this transaction, read out of its metadata — so a trade
+  // through the app *reconciles* the row instead of accumulating onto it.
+  //
+  // That distinction is the whole point. The wallet can move without the app:
+  // a swap made on pump.fun directly, a transfer out, an account sweep.
+  // Maintaining the holding by adding and subtracting our own fill log drifts
+  // permanently the first time that happens, and this code did exactly that —
+  // kasper's account went on claiming 84,020 ANSEM the wallet had already
+  // disposed of, and no later trade through the app could ever correct it.
   const existing = await prisma.position.findUnique({
     where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
   });
-  const heldBefore = BigInt(existing?.tokenAmount ?? "0");
-  const heldAfter = side === "BUY" ? heldBefore + tokenRaw : heldBefore - tokenRaw;
 
-  if (heldAfter <= 0n && side === "SELL") {
-    // Fully exited. Keep the row but zero it so realized PnL survives.
+  // Fall back to our own arithmetic only when the transaction carried no token
+  // balance for this mint at all — never silently prefer it to the chain.
+  const chainKnown = [
+    ...(meta.preTokenBalances ?? []),
+    ...(meta.postTokenBalances ?? []),
+  ].some((b) => b.mint === mint && b.owner === trader.walletAddress);
+  const heldBefore = chainKnown ? preTok : BigInt(existing?.tokenAmount ?? "0");
+  const heldAfter = chainKnown
+    ? postTok
+    : side === "BUY"
+      ? heldBefore + tokenRaw
+      : heldBefore - tokenRaw;
+
+  if (heldAfter <= 0n) {
+    // Nothing held afterwards — a full exit, or a sweep we did not make. Keep
+    // the row but zero it so realized PnL survives. Only a sell realized
+    // anything; zeroing a buy must not invent proceeds.
     await prisma.position.upsert({
       where: { traderId_coinId: { traderId: trader.id, coinId: coin.id } },
       create: {
@@ -231,12 +256,12 @@ export async function POST(req: NextRequest) {
         coinId: coin.id,
         tokenAmount: "0",
         costSol: 0,
-        realizedSol: solAmount,
+        realizedSol: side === "SELL" ? solAmount : 0,
       },
       update: {
         tokenAmount: "0",
         costSol: 0,
-        realizedSol: { increment: solAmount },
+        ...(side === "SELL" ? { realizedSol: { increment: solAmount } } : {}),
       },
     });
   } else {

@@ -30,6 +30,8 @@ import { prisma } from "./db";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
 import { ingestNewTokens } from "./ingest";
+import { reconcilePositions } from "./reconcile";
+import type { ReconcileResult } from "./reconcile";
 import { solUsd } from "./sol-price";
 
 export type SyncResult = {
@@ -49,6 +51,8 @@ export type SyncResult = {
     clips: number;
     skipped: number;
   };
+  /** Positions brought back in step with the chain, or null if the pass failed. */
+  reconciled: ReconcileResult | null;
 };
 
 /** totalSupply is raw units with 6 decimals. */
@@ -126,6 +130,13 @@ export async function runKeeper(opts: {
    * pump.fun. The VPS cron opts in (see scripts/sync-cron.sh).
    */
   ingest?: number;
+  /**
+   * How many positions to reconcile against the chain, or 0/undefined to skip.
+   * Off by default for the same reason as `ingest`: one RPC read per position
+   * does not belong inside a 60-second serverless invocation. The VPS cron opts
+   * in (see scripts/sync-cron.sh).
+   */
+  reconcile?: number;
 }): Promise<SyncResult> {
   // Ingest runs FIRST, so coins discovered on this tick are part of the catalog
   // that the refresh below walks — they get a real price immediately instead of
@@ -143,6 +154,20 @@ export async function runKeeper(opts: {
       errors.push(`ingest: ${(e as Error).message.slice(0, 90)}`);
     }
   }
+
+  // ---- positions ----------------------------------------------------------
+  // The wallet is the authority on what is held, and this runs before the
+  // catalog is even read: a book listing coins the wallet no longer has is
+  // wrong regardless of what the market did this tick.
+  //
+  // A position mirror maintained only from our own fill log drifts the first
+  // time a wallet moves without us — a swap on pump.fun directly, a transfer
+  // out — and can never come back, because it is arithmetic on our own history.
+  // Reconciling against the chain means the book heals even for someone who
+  // never trades through the app again.
+  const reconciled = opts.reconcile
+    ? await reconcilePositions({ apply: true, limit: opts.reconcile }).catch(() => null)
+    : null;
 
   const coins = opts.mints?.length
     ? await prisma.coin.findMany({ where: { mint: { in: opts.mints } } })
@@ -162,6 +187,7 @@ export async function runKeeper(opts: {
     errors,
     sweepErrors: [],
     ingested,
+    reconciled,
   };
   if (coins.length === 0) return empty;
 
@@ -332,5 +358,6 @@ export async function runKeeper(opts: {
     sweepErrors: sweepErrors.slice(0, 5),
     note,
     ingested,
+    reconciled,
   };
 }
