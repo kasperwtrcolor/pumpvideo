@@ -43,29 +43,6 @@ import { artUrl } from "./art-url";
 export const MIN_MCAP_SOL = 12;
 const MAX_AGE_HOURS = 72;
 
-/**
- * How long a launch must have survived before it is worth cataloguing.
- *
- * The single strongest signal available at ingest time, and the only one that
- * separates a token with a future from an instant rug: a snapshot taken seconds
- * after launch cannot tell them apart, but a token that is still around half an
- * hour later has already outlived most of its cohort.
- *
- * It is not free. `ingestNewTokens` fetches newest-first, so at ~1,500 launches
- * a day the newest page spans only minutes and *every* row on it is younger than
- * this gate. A page sized exactly to the number of coins we intend to keep would
- * therefore be filtered down to nothing, so the candidate window is widened
- * below to reach past the boundary.
- */
-export const MIN_AGE_MINUTES = 30;
-
-/**
- * How many launches to *consider*, regardless of how many we intend to keep.
- * 50 is pump.fun's page size and the largest the ranked list reliably returns,
- * so this is the widest window that costs a single request.
- */
-const CANDIDATE_WINDOW = 50;
-
 /** Ranking score, shared so the CLI and the cron can never order the feed differently. */
 export function rankFor(coin: {
   marketCapSol: number;
@@ -176,12 +153,23 @@ export async function ingestList(opts: {
 /**
  * Narrow ingest: the newest launches that pass the guards.
  *
- * `limit` is how many coins may *land* — the page actually fetched is wider, so
- * this caps what the catalogue keeps without also capping what it looks at. See
- * MIN_AGE_MINUTES for why the two had to be separated.
+ * `limit` is how many coins to *consider*, not how many land — most of a fresh
+ * page is filtered out, which is the intended behaviour. Returns both counts so
+ * a cron log shows the ratio rather than quietly doing nothing.
  *
- * Returns the counts so a cron log shows the ratio rather than quietly doing
- * nothing: a tick that considered 50 launches and kept 7 is visibly working.
+ * WHY THERE IS NO MINIMUM-AGE GATE HERE
+ *
+ * Requiring a launch to have survived half an hour is the obvious way to filter
+ * rugs, and it was implemented and then removed: pump.fun publishes roughly 45
+ * coins a minute, so the newest 50 launches span about *one* minute and every
+ * row on the page fails the gate. Reaching a 30-minute boundary means paging
+ * ~1,350 rows per tick, which would consume the rate-limit budget the price
+ * sweep shares in the same tick. The gate did not filter the page, it emptied
+ * it — ingest landed 0 coins on every run.
+ *
+ * So filtering happens where it is cheap and where the evidence exists: at the
+ * ingest floor for market cap, and by measurement afterwards in lib/retention.ts,
+ * which is the only place that can actually tell a dead coin from a live one.
  */
 export async function ingestNewTokens(opts: { limit: number }): Promise<{
   considered: number;
@@ -189,18 +177,13 @@ export async function ingestNewTokens(opts: { limit: number }): Promise<{
   clips: number;
   skipped: number;
 }> {
-  // Consider a wider window than we intend to keep. The minimum-age gate below
-  // rejects the newest launches, so a page sized exactly to `limit` would almost
-  // always be filtered down to nothing — see MIN_AGE_MINUTES.
-  const wanted = Math.max(opts.limit * 4, CANDIDATE_WINDOW);
   const candidates = await fetchCoins({
     sort: "created_timestamp",
     order: "DESC",
-    limit: wanted,
+    limit: opts.limit,
   });
 
   const oldestAllowed = Date.now() - MAX_AGE_HOURS * 3_600_000;
-  const youngestAllowed = Date.now() - MIN_AGE_MINUTES * 60_000;
 
   // Tokens the retention sweep has already pruned. Without this the sweep and
   // the ingest fight: every tick would re-fetch and re-update a coin the app has
@@ -243,19 +226,9 @@ export async function ingestNewTokens(opts: { limit: number }): Promise<{
       skipped++;
       continue;
     }
-    // Too new to judge. The window is newest-first, so the rows that fail here
-    // are a prefix of the page and the ones that follow are the survivors.
-    if (record.launchedAt && record.launchedAt.getTime() > youngestAllowed) {
-      skipped++;
-      continue;
-    }
+    // Older than the discovery window. The point of this path is new launches,
+    // so anything past MAX_AGE_HOURS belongs to the backfill, not here.
     if (record.launchedAt && record.launchedAt.getTime() < oldestAllowed) {
-      skipped++;
-      continue;
-    }
-    // Landed enough. This is what keeps the *storage* rate independent of the
-    // widened window — a better pick of `limit` coins, not more of them.
-    if (coins >= opts.limit) {
       skipped++;
       continue;
     }
