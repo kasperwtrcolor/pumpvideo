@@ -184,15 +184,15 @@ export default function CoinsPage() {
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-bold">{c.name}</span>
-                  <span className="text-[11px] text-muted">${sym(c.symbol)}</span>
+                  <span className="truncate text-[15px] font-bold">{c.name}</span>
+                  <span className="text-[12px] text-muted">${sym(c.symbol)}</span>
                   {c.complete && (
                     <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-bold text-accent">
                       GRAD
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
+                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
                   <span>{c.clipCount} clip{c.clipCount === 1 ? "" : "s"}</span>
                   <span>·</span>
                   <span>{timeAgo(c.launchedAt)} ago</span>
@@ -202,15 +202,15 @@ export default function CoinsPage() {
               </div>
 
               <div className="shrink-0 text-right">
-                <div className="text-sm font-bold tabular-nums">
+                <div className="text-[15px] font-bold tabular-nums">
                   {fmtSol(c.marketCapSol)}
                   <span className="ml-1 text-[10px] font-semibold text-muted">SOL</span>
                 </div>
-                <div className="text-[10px] text-muted tabular-nums">
+                <div className="text-[11px] text-muted tabular-nums">
                   {fmtPrice(c.priceSol)} SOL
                 </div>
                 <div
-                  className={`text-[10px] font-bold tabular-nums ${
+                  className={`text-[11px] font-bold tabular-nums ${
                     c.change24hPct >= 0 ? "text-up" : "text-down"
                   }`}
                 >

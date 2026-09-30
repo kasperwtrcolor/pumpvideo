@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "./AuthBridge";
 import { BellIcon } from "./Icons";
+import { setUnread } from "@/lib/unread";
 
 /**
  * The notification bell, with an unread badge.
@@ -21,10 +22,11 @@ const POLL_MS = 45_000;
 
 export function NotifyBell({ overlay }: { overlay?: boolean }) {
   const { enabled, authenticated, getToken } = useAuth();
-  const [unread, setUnread] = useState(0);
+  const [unread, setLocal] = useState(0);
 
   const load = useCallback(async () => {
     if (!authenticated) {
+      setLocal(0);
       setUnread(0);
       return;
     }
@@ -37,6 +39,9 @@ export function NotifyBell({ overlay }: { overlay?: boolean }) {
       });
       if (!r.ok) return;
       const j = (await r.json()) as { unread?: number };
+      setLocal(j.unread ?? 0);
+      // Also published to the shared store so the feed's banner can show the
+      // same count without polling the endpoint a second time.
       setUnread(j.unread ?? 0);
     } catch {
       /* a missed poll is not worth surfacing */
@@ -45,6 +50,7 @@ export function NotifyBell({ overlay }: { overlay?: boolean }) {
 
   useEffect(() => {
     if (!enabled || !authenticated) {
+      setLocal(0);
       setUnread(0);
       return;
     }
@@ -82,7 +88,7 @@ export function NotifyBell({ overlay }: { overlay?: boolean }) {
     <Link
       href="/notifications"
       aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
-      className={`press relative flex h-8 w-8 items-center justify-center rounded-full border ${
+      className={`press relative flex h-9 w-9 items-center justify-center rounded-full border ${
         overlay ? "border-white/25 bg-black/35 backdrop-blur" : "border-line bg-panel2"
       }`}
     >

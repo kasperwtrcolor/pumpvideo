@@ -337,6 +337,63 @@ body {
 }
 
 /**
+ * The overlay of a clip arriving: a small overshoot, then the settle.
+ *
+ * This is the *scroll* counterpart to `clip-enter`, which only plays on first
+ * mount of the whole page. Here the panel is already on screen and the viewer
+ * just swiped to it, so the movement has to be short and mostly vertical: enough
+ * to make the swipe feel like it landed on something, not enough to be a second
+ * animation competing with the gesture. Easing is a back-out curve, so it
+ * crosses the resting position slightly and returns — the "bounce".
+ */
+@keyframes clip-bounce {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0) scale(0.97);
+  }
+  62% {
+    opacity: 1;
+    transform: translate3d(0, -4px, 0) scale(1.006);
+  }
+  82% {
+    transform: translate3d(0, 1px, 0) scale(0.999);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+.clip-bounce {
+  animation: clip-bounce 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/** A banner dropping in from above — the notification pill. */
+@keyframes banner-drop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -14px, 0) scale(0.94);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(0, 2px, 0) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+.banner-drop {
+  animation: banner-drop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/** The banner's soft halo, so a green pill reads as lit rather than pasted on. */
+.banner-glow {
+  box-shadow:
+    0 6px 24px color-mix(in oklab, var(--color-accent) 38%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/**
  * One switch for all of it.
  *
  * Apple's guidance is explicit that motion must be optional, and vestibular
@@ -357,6 +414,8 @@ body {
   .spin-once,
   .toast-in,
   .clip-enter,
+  .clip-bounce,
+  .banner-drop,
   .skeleton {
     animation: none;
   }

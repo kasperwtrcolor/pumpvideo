@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import type { AccountResponse, FeedItemDTO, FeedResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
@@ -12,6 +12,8 @@ import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } f
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
+import { AnimatedNumber } from "./AnimatedNumber";
+import { getUnread, subscribeUnread } from "@/lib/unread";
 import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
 
@@ -509,7 +511,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     <div className="relative h-full">
       {/* sort rail — sits below the transparent header overlay, which the feed
           renders underneath so the video runs to the top edge of the screen. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col items-center gap-2 pt-[calc(env(safe-area-inset-top)+3.25rem)]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col items-center gap-2 pt-[calc(env(safe-area-inset-top)+5rem)]">
         {/* Which wall. Centred at the top, the way every clip feed does it. */}
         <div className="pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur">
           {SCOPES.map((s) => (
@@ -558,6 +560,8 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             <VolumeIcon muted={muted} className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        <NotificationBanner />
       </div>
 
       <div ref={scroller} className="snap-feed no-scrollbar h-full overflow-y-scroll">
@@ -566,6 +570,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             key={it.id}
             item={it}
             index={i}
+            isActive={active === i}
             muted={muted}
             liked={Boolean(liked[it.id])}
             favorited={Boolean(favorited[it.id])}
@@ -702,6 +707,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 function ClipPanel({
   item,
   index,
+  isActive,
   muted,
   liked,
   favorited,
@@ -718,6 +724,8 @@ function ClipPanel({
 }: {
   item: FeedItemDTO;
   index: number;
+  /** True while this is the panel under the viewer — drives the arrival motion. */
+  isActive: boolean;
   muted: boolean;
   liked: boolean;
   favorited: boolean;
@@ -734,6 +742,29 @@ function ClipPanel({
 }) {
   const { coin } = item;
   const vid = useRef<HTMLVideoElement>(null);
+
+  /**
+   * How many times this panel has arrived under the viewer.
+   *
+   * A counter rather than a boolean, because both the bounce and the price count
+   * are keyed on it: a panel that is swiped away from and back to should play
+   * again, and one that merely re-renders (a quote landing, a like) should not.
+   * Zero means it has never been the active panel, so nothing plays on the
+   * initial paint of panels the viewer has not reached yet.
+   */
+  const [arrival, setArrival] = useState(0);
+  useEffect(() => {
+    if (isActive) setArrival((n) => n + 1);
+  }, [isActive]);
+
+  /**
+   * Replays the entrance every time this panel arrives under the viewer.
+   *
+   * The class is removed and re-added a frame later rather than keying the
+   * element: a `key` would remount everything inside the block, and the price
+   * counter in there has to stay mounted or it loses the value it counts from.
+   */
+  const bounce = useArrival(isActive);
 
   // The burst counters replay an acknowledgement animation exactly on the
   // transition to the on-state — not when a clip arrives already liked/saved,
@@ -780,6 +811,17 @@ function ClipPanel({
   const price = quote?.priceSol ?? coin.priceSol;
   const marketCap = quote?.marketCapSol ?? coin.marketCapSol;
   const change = quote?.change24hPct ?? coin.change24hPct;
+  /**
+   * Where this price stood 24 hours ago, implied by the reported change.
+   *
+   * The price chip counts up from here (or down to it) each time the clip
+   * arrives under the viewer, so the direction of the day is something the eye
+   * catches rather than something that has to be read. Deriving the start from
+   * the coin's own change means the count is a real movement, not a decoration —
+   * a coin up 50% counts up from two-thirds of its price, and one down 50%
+   * counts down from double it.
+   */
+  const priorPrice = change > -99.9 ? price / (1 + change / 100) : price;
 
   // Token age. pump.fun tells us when a coin launched; when it doesn't, the
   // moment it entered our catalogue is the honest fallback — it is still "how
@@ -877,7 +919,12 @@ function ClipPanel({
           header icons above it, the column has to clear the header on a short
           viewport (a landscape phone, or a small window). Sizes and gaps are
           kept tight so the top of the rail stays below the chrome. */}
-      <div className="absolute bottom-28 right-3 z-30 flex flex-col items-center gap-3">
+      <div
+        className={`absolute bottom-28 right-3 z-30 flex flex-col items-center gap-3 ${
+          bounce ? "clip-bounce" : ""
+        }`}
+        style={bounce ? { animationDelay: "70ms" } : undefined}
+      >
         <RailButton
           label={sym(coin.symbol).slice(0, 5)}
           sub="coin"
@@ -931,8 +978,12 @@ function ClipPanel({
       )}
 
       {/* bottom info */}
-      <div className="absolute inset-x-0 bottom-0 z-30 space-y-3 p-4 pr-20">
-        <div className="flex items-center gap-2 text-xs text-white/90 text-glow">
+      <div
+        className={`absolute inset-x-0 bottom-0 z-30 space-y-3 p-4 pr-20 ${
+          bounce ? "clip-bounce" : ""
+        }`}
+      >
+        <div className="flex items-center gap-2 text-[13px] text-white/90 text-glow">
           {item.creatorId ? (
             <Link
               href={`/u/${encodeURIComponent(item.creatorId)}`}
@@ -952,7 +1003,7 @@ function ClipPanel({
           <span className="text-white/60">{fmtCount(counts.views)} views</span>
         </div>
 
-        <p className="line-clamp-2 text-sm font-medium text-white/95 text-glow">
+        <p className="line-clamp-2 text-[15px] font-medium text-white/95 text-glow">
           {item.caption ?? `$${sym(coin.symbol)}`}
         </p>
 
@@ -995,7 +1046,13 @@ function ClipPanel({
               change >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"
             }`}
           >
-            24h {fmtPct(change)}
+            24h{" "}
+            <AnimatedNumber
+              value={change}
+              from={0}
+              replayKey={`chg-${arrival}`}
+              format={(n) => fmtPct(n)}
+            />
           </span>
           {/* The 5-minute move — the number the Hot rail is ranked on, so a
               viewer can see *why* a clip surfaced as hot. Hidden at a flat zero
@@ -1024,7 +1081,12 @@ function ClipPanel({
             }`}
             style={{ backgroundColor: "rgba(0,0,0,0.55)" }}
           >
-            {fmtPrice(price)} SOL
+            <AnimatedNumber
+              value={price}
+              from={priorPrice}
+              replayKey={`px-${arrival}`}
+              format={(n) => `${fmtPrice(n)} SOL`}
+            />
             <LiveDot live={Boolean(quote?.live)} />
           </span>
           {coin.complete && (
@@ -1168,6 +1230,86 @@ function LikeGlyph({ liked, burst }: { liked: boolean; burst: number }) {
         className={`relative h-7 w-7 ${liked ? "heart-pop text-down" : "text-white"}`}
       />
     </span>
+  );
+}
+
+/**
+ * Replays an entrance animation when `isActive` turns true.
+ *
+ * Returns a flag to toggle a class with. It is deliberately *not* a `key`: the
+ * blocks that bounce contain the price counter, and remounting them would reset
+ * the counter's start value, turning the count into a snap. Setting the flag
+ * false and then true again on the next frame is what makes the browser treat
+ * it as a new animation.
+ */
+function useArrival(isActive: boolean): boolean {
+  const [play, setPlay] = useState(false);
+
+  useEffect(() => {
+    if (!isActive) return;
+    setPlay(false);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setPlay(true));
+    });
+    const done = setTimeout(() => setPlay(false), 760);
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+      clearTimeout(done);
+    };
+  }, [isActive]);
+
+  return play;
+}
+
+/**
+ * The green "there is something waiting for you" pill.
+ *
+ * Styled after the notification banners these apps put over the feed: a solid
+ * accent fill rather than a subtle chip, because the whole job is to interrupt a
+ * viewer who is mid-scroll. It reads the unread count from the shared store the
+ * bell already polls, so it costs no extra request and the two can never
+ * disagree.
+ *
+ * Dismissal is per session and recorded the moment it is tapped: the tap goes to
+ * the inbox, and offering it again a second later — while the count is on its
+ * way to zero — would be nagging.
+ */
+function NotificationBanner() {
+  const unread = useSyncExternalStore(subscribeUnread, getUnread, () => 0);
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("pogo_notif_banner") === "1") setHidden(true);
+    } catch {
+      /* storage blocked — worst case it shows again next visit */
+    }
+  }, []);
+
+  const dismiss = useCallback(() => {
+    setHidden(true);
+    try {
+      sessionStorage.setItem("pogo_notif_banner", "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  if (unread <= 0 || hidden) return null;
+
+  return (
+    <Link
+      href="/notifications"
+      onClick={dismiss}
+      className="banner-drop banner-glow pointer-events-auto flex items-center gap-2 rounded-full bg-accent py-1.5 pl-1.5 pr-4 text-[13px] font-black tracking-tight text-black"
+    >
+      <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-black/85 px-1.5 text-[11px] font-black text-accent tabular-nums">
+        {unread > 99 ? "99+" : unread}
+      </span>
+      {unread === 1 ? "New notification" : "New notifications"}
+    </Link>
   );
 }
 

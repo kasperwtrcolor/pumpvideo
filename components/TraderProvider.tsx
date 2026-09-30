@@ -27,9 +27,27 @@ export type Trader = {
 
 type Toast = { id: number; text: string; tone: "ok" | "bad" };
 
+/**
+ * The money half of /api/account, kept alongside the trader so the header can
+ * show a portfolio without a second request. Written by the same poll that
+ * already refreshes the trader.
+ */
+export type AccountSummary = {
+  /** Live on-chain SOL, or null when it could not be read. */
+  walletSol: number | null;
+  /** Value of everything held, in SOL, at the last mark. */
+  holdingsValue: number;
+  /** Unrealised PnL on those holdings, in SOL. */
+  pnlSol: number;
+  pnlPct: number;
+  /** Lifetime creator rewards, in SOL. */
+  rewardsSol: number;
+};
+
 type Ctx = {
   trader: Trader | null;
   setTrader: (t: Trader) => void;
+  account: AccountSummary | null;
   refresh: () => Promise<void>;
   solUsd: number;
   toasts: Toast[];
@@ -52,6 +70,7 @@ export function TraderProvider({
   initialSolUsd: number;
 }) {
   const [trader, setTrader] = useState<Trader | null>(null);
+  const [account, setAccount] = useState<AccountSummary | null>(null);
   const [solUsd, setSolUsd] = useState(initialSolUsd);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -66,6 +85,17 @@ export function TraderProvider({
       const r = await fetch("/api/account", { cache: "no-store" });
       const j = await r.json();
       if (j.trader) setTrader(j.trader as Trader);
+      // The same payload carries the portfolio. Publishing it here means the
+      // header's balance costs nothing extra — there is already a poll running.
+      if (Number.isFinite(j.holdingsValue) || Number.isFinite(j.pnlSol)) {
+        setAccount({
+          walletSol: Number.isFinite(j.walletSol) ? (j.walletSol as number) : null,
+          holdingsValue: Number.isFinite(j.holdingsValue) ? (j.holdingsValue as number) : 0,
+          pnlSol: Number.isFinite(j.pnlSol) ? (j.pnlSol as number) : 0,
+          pnlPct: Number.isFinite(j.pnlPct) ? (j.pnlPct as number) : 0,
+          rewardsSol: Number.isFinite(j.rewardsSol) ? (j.rewardsSol as number) : 0,
+        });
+      }
     } catch {
       /* offline is fine */
     }
@@ -85,8 +115,8 @@ export function TraderProvider({
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ trader, setTrader, refresh, solUsd, toasts, toast }),
-    [trader, refresh, solUsd, toasts, toast],
+    () => ({ trader, setTrader, account, refresh, solUsd, toasts, toast }),
+    [trader, account, refresh, solUsd, toasts, toast],
   );
 
   return (
