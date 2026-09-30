@@ -109,6 +109,14 @@ async function main() {
     /class="[^"]*object-cover/.test(home),
     "has tile imagery",
   );
+  // The rename is only real if the old name is gone from what is served — a
+  // stray "PUMPCLIP" in a header or a meta tag is exactly the kind of thing that
+  // survives a search-and-replace and ships.
+  check(
+    "the app is branded Pogo, with no PumpClip left behind",
+    home.includes("POGO") && !home.includes("PUMPCLIP"),
+    "wordmark",
+  );
 
   // The account page is where wallet management, the live book and sign-out now
   // live; the old modal sheet and the /portfolio tab are gone. /portfolio is
@@ -613,6 +621,30 @@ async function main() {
     "the account payload does not leak the session handle",
     Boolean(acctBody.trader) && !("handle" in (acctBody.trader ?? {})),
     Object.keys(acctBody.trader ?? {}).join(","),
+  );
+
+  // Creator rewards ride on the account payload, and the numbers the UI renders
+  // must be real ones. "NaN SOL" on the rewards card would be worse than no card.
+  const acctRewards = acctBody as { rewardsSol?: number; rewards?: unknown[] };
+  check(
+    "the account payload carries creator rewards",
+    Number.isFinite(acctRewards.rewardsSol) && Array.isArray(acctRewards.rewards),
+    `${acctRewards.rewardsSol} SOL, ${acctRewards.rewards?.length ?? 0} coins`,
+  );
+
+  // The coins page shows this total publicly, so it has to be a number and it
+  // has to be summed from the creator legs rather than invented.
+  const statsRes = await fetch(`${BASE}/api/stats`);
+  const statsBody = (await statsRes.json()) as {
+    rewardsPaidSol?: number;
+    rewardsPaidCount?: number;
+  };
+  check(
+    "the public stats expose total creator rewards paid",
+    statsRes.ok &&
+      Number.isFinite(statsBody.rewardsPaidSol) &&
+      Number.isFinite(statsBody.rewardsPaidCount),
+    `${statsBody.rewardsPaidSol} SOL across ${statsBody.rewardsPaidCount} buys`,
   );
 
   const searchShape = await fetch(`${BASE}/api/search?q=sol`);

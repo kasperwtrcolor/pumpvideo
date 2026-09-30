@@ -1,7 +1,7 @@
 /**
  * In-app trading fees.
  *
- * A buy made through PumpClip pays two fees, both in SOL, both taken on the
+ * A buy made through Pogo pays two fees, both in SOL, both taken on the
  * *buy* only:
  *
  *   - 1% to the clip's creator (the wallet that uploaded the video)

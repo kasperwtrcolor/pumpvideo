@@ -65,7 +65,7 @@ export function AppHeader() {
           : "relative z-50 flex shrink-0 items-center gap-2 border-b border-line bg-bg px-3 pt-[env(safe-area-inset-top)] pb-2"
       }
     >
-      <Link href="/" className="shrink-0 py-1" aria-label="PumpClip — feed">
+      <Link href="/" className="shrink-0 py-1" aria-label="Pogo — feed">
         <LogoLockup />
       </Link>
 

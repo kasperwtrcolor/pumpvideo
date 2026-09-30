@@ -202,6 +202,13 @@ export type AccountResponse = {
   realizedSol: number;
   pnlSol: number;
   pnlPct: number;
+  /** Lifetime creator rewards in SOL — the 1% paid on buys through this trader's clips. */
+  rewardsSol: number;
+  /** Number of buys that have paid this trader, and how many coins they came from. */
+  rewardsBuys: number;
+  rewardsCoins: number;
+  /** Per-coin breakdown of rewards earned, largest first. */
+  rewards: { mint: string; symbol: string; sol: number }[];
   positions: PositionDTO[];
   trades: {
     id: string;

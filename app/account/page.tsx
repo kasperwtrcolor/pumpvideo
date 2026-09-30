@@ -6,6 +6,7 @@ import { useAuth } from "@/components/AuthBridge";
 import { AccountPanel } from "@/components/AccountPanel";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { PositionsSection } from "@/components/PositionsSection";
+import { RewardsSection } from "@/components/RewardsSection";
 import { LEGAL_LINKS } from "@/lib/legal";
 
 /**
@@ -67,12 +68,14 @@ function AccountInner() {
     <Shell>
       <h1 className="text-2xl font-black tracking-tight">Account</h1>
       <p className="mt-1 text-xs text-muted">
-        Your wallet and your live book. Keys stay with you — PumpClip never holds them.
+        Your wallet and your live book. Keys stay with you — Pogo never holds them.
       </p>
 
       <div className="mt-4">
         <AccountPanel />
       </div>
+
+      <RewardsSection />
 
       <div className="mt-4">
         <ProfileSettings />
@@ -96,7 +99,7 @@ function AccountInner() {
         </div>
         <p className="mt-3 text-[10px] leading-relaxed text-muted">
           Tokens traded here are highly speculative and can lose all their value. Nothing in
-          PumpClip is investment advice. You trade from your own self-custodial wallet.
+          Pogo is investment advice. You trade from your own self-custodial wallet.
         </p>
       </footer>
     </Shell>

@@ -235,12 +235,21 @@ model Trade {
   priceSol    Float
   /// total in-app fee charged in SOL (creator + treasury), for accounting
   feeSol      Float  @default(0)
+  /// The 1% creator leg of `feeSol`, split out from the total, and the wallet it
+  /// was paid to. Stored rather than derived because the creator is resolved from
+  /// the *clip* the buyer came through — a join that is not available at read
+  /// time, and a fact that stops being reconstructable the moment the clip is
+  /// deleted. This is the ledger row behind "creator rewards earned".
+  creatorFeeSol Float   @default(0)
+  creatorWallet String?
   txSig       String? // the on-chain transaction signature
 
   createdAt DateTime @default(now())
 
   @@index([traderId, createdAt])
   @@index([coinMint, createdAt])
+  /// Sums a creator's lifetime rewards (and the app-wide total paid) in one read.
+  @@index([creatorWallet, createdAt])
 }
 
 /// One like per trader per clip. The unique key is what makes the toggle

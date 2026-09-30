@@ -40,7 +40,7 @@ const SCOPES: { key: Scope; label: string }[] = [
   { key: "following", label: "Following" },
 ];
 
-/** How many clips a signed-out visitor can watch before we invite them in. */
+/** How many clips a signed-out visitor watches between each login invite. */
 const WATCH_BEFORE_PROMPT = 5;
 
 /** Session key holding this visit's shuffle seed. */
@@ -103,7 +103,8 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [scope, setScope] = useState<Scope>("all");
   // Login nudge. `watched` counts distinct clips actually played this session.
   const [watched, setWatched] = useState(0);
-  const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  /** The clip-count milestone the viewer has already dismissed the invite for. */
+  const [nudgeDismissedFor, setNudgeDismissedFor] = useState<number | null>(null);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [favorited, setFavorited] = useState<Record<string, boolean>>({});
   const [counts, setCounts] = useState<Record<string, Counts>>({});
@@ -486,27 +487,23 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     [authenticated, getToken, toast],
   );
 
-  // Remember a dismissal for the session, so the invite is offered once rather
-  // than every time the count crosses the threshold.
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem("pumpclip_login_nudge") === "1") setNudgeDismissed(true);
-    } catch {
-      /* storage blocked — worst case the nudge reappears next navigation */
-    }
-  }, []);
-
-  const dismissNudge = useCallback(() => {
-    setNudgeDismissed(true);
-    try {
-      sessionStorage.setItem("pumpclip_login_nudge", "1");
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  /**
+   * Dismiss the invite *for the milestone it appeared on*.
+   *
+   * Latching per-milestone rather than for the whole session is what re-arms the
+   * ask every WATCH_BEFORE_PROMPT clips: "keep browsing" silences this one, and
+   * the next invite lands when the count crosses the following multiple. A plain
+   * session latch would mean a viewer who waves it away once is never asked
+   * again, however long they keep swiping.
+   */
+  const dismissNudge = useCallback(() => setNudgeDismissedFor(watched), [watched]);
 
   const showLoginNudge =
-    authEnabled && !authenticated && !nudgeDismissed && watched >= WATCH_BEFORE_PROMPT;
+    authEnabled &&
+    !authenticated &&
+    watched > 0 &&
+    watched % WATCH_BEFORE_PROMPT === 0 &&
+    nudgeDismissedFor !== watched;
 
   return (
     <div className="relative h-full">
@@ -674,12 +671,11 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
           <button aria-label="Dismiss" className="absolute inset-0" onClick={dismissNudge} />
           <div className="relative w-full max-w-sm rounded-2xl border border-line bg-panel p-5 text-center">
             <h2 id="login-nudge-title" className="text-base font-bold tracking-tight">
-              Create a wallet to trade
+              Log in to keep watching
             </h2>
             <p className="mt-2 text-[12px] leading-relaxed text-muted">
-              That&apos;s {WATCH_BEFORE_PROMPT} clips in. Log in with email, Google or X and a
-              self-custodial Solana wallet is created for you — then any clip in the feed is
-              one tap to buy.
+              Log in with email, Google or X. A self-custodial Solana wallet is created for
+              you — then any clip in the feed is one tap to buy.
             </p>
             <button
               onClick={() => {

@@ -150,6 +150,32 @@ export async function GET() {
     take: 40,
   });
 
+  // ---- creator rewards ----------------------------------------------------
+  // The 1% cut this trader earns whenever someone buys through one of their
+  // clips. It is paid on-chain at buy time, straight into `walletAddress`, so
+  // this is a *ledger* of what has already been paid — never a pending balance.
+  // Keyed on the wallet (not the trader row) because that is what the fee
+  // transaction pays, and what a creator keeps even across accounts.
+  const rewardTotals = trader.walletAddress
+    ? await prisma.trade.aggregate({
+        where: { creatorWallet: trader.walletAddress, creatorFeeSol: { gt: 0 } },
+        _sum: { creatorFeeSol: true },
+        _count: { _all: true },
+      })
+    : null;
+
+  const rewardGroups = trader.walletAddress
+    ? await prisma.trade.groupBy({
+        by: ["coinMint", "symbol"],
+        where: { creatorWallet: trader.walletAddress, creatorFeeSol: { gt: 0 } },
+        _sum: { creatorFeeSol: true },
+        orderBy: { _sum: { creatorFeeSol: "desc" } },
+        take: 50,
+      })
+    : [];
+
+  const rewardsSol = rewardTotals?._sum.creatorFeeSol ?? 0;
+
   return withTrader(
     {
       walletAddress: trader.walletAddress,
@@ -159,6 +185,16 @@ export async function GET() {
       realizedSol: positions.reduce((s, p) => s + p.realizedSol, 0),
       pnlSol: holdingsValue - costBasis,
       pnlPct: costBasis > 0 ? ((holdingsValue - costBasis) / costBasis) * 100 : 0,
+      /// Lifetime creator rewards, in SOL, already settled to the wallet.
+      rewardsSol,
+      /// How many buys have paid this trader, across how many coins.
+      rewardsBuys: rewardTotals?._count._all ?? 0,
+      rewardsCoins: rewardGroups.length,
+      rewards: rewardGroups.map((r) => ({
+        mint: r.coinMint,
+        symbol: r.symbol,
+        sol: r._sum.creatorFeeSol ?? 0,
+      })),
       positions: rows,
       trades: recentTrades.map((t) => ({
         id: t.id,

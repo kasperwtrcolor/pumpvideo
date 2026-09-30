@@ -207,6 +207,10 @@ export async function POST(req: NextRequest) {
       tokenAmount: tokenRaw.toString(),
       priceSol,
       feeSol: inAppFeeSol,
+      // The creator's 1% leg, recorded separately so it can be summed into that
+      // creator's rewards. Only buys pay a fee, so a sell never carries one.
+      creatorFeeSol: side === "BUY" ? creatorFeeSol : 0,
+      creatorWallet: side === "BUY" ? creatorWallet : null,
       txSig: signature,
     },
   });

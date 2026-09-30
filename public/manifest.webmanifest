@@ -1,6 +1,6 @@
 {
-  "name": "PumpClip",
-  "short_name": "PumpClip",
+  "name": "Pogo",
+  "short_name": "Pogo",
   "description": "Swipe short clips. Every clip has its own coin you can buy.",
   "start_url": "/",
   "display": "standalone",

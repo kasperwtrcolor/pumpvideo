@@ -1,5 +1,5 @@
 /**
- * Rasterise the PumpClip mark into the icon set the app ships.
+ * Rasterise the Pogo mark into the icon set the app ships.
  *
  * Source of truth is public/logo.svg — edit that (or the React mark in
  * components/Logo.tsx) and re-run `node scripts/gen-icons.mjs` to refresh

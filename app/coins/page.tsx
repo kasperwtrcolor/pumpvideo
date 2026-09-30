@@ -19,6 +19,9 @@ type Stats = {
   volume24hSol: number;
   traders: number;
   trades: number;
+  /** Total SOL paid to clip creators across the app, and how many buys paid it. */
+  rewardsPaidSol: number;
+  rewardsPaidCount: number;
   solUsd: number;
 };
 
@@ -72,6 +75,42 @@ export default function CoinsPage() {
         <p className="mt-1 text-xs text-muted">
           Every coin with a clip. Watch it, buy it, move on.
         </p>
+
+        {/* The rewards ledger, in public.
+            The app's promise is that creators get paid — so the proof belongs on
+            the front of the coin index, not buried in a settings page. The
+            figure is summed from fees that actually settled on-chain, so it
+            cannot drift from reality. At zero, the strip states the deal rather
+            than parading a meaningless "0 SOL". */}
+        {stats && (
+          <div className="mt-4 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3">
+            <span aria-hidden className="text-lg">
+              💸
+            </span>
+            <div className="min-w-0">
+              {stats.rewardsPaidSol > 0 ? (
+                <>
+                  <div className="text-sm font-black tabular-nums text-accent">
+                    {fmtSol(stats.rewardsPaidSol)} SOL
+                    <span className="ml-1.5 font-bold text-muted">paid to creators</span>
+                  </div>
+                  <div className="text-[10px] text-muted tabular-nums">
+                    ≈ {fmtUsd(stats.rewardsPaidSol * solUsd)} across {fmtCount(stats.rewardsPaidCount)}{" "}
+                    buy{stats.rewardsPaidCount === 1 ? "" : "s"} · settled on-chain
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-black text-accent">Creators get paid</div>
+                  <div className="text-[10px] leading-relaxed text-muted">
+                    1% of every buy through a clip goes to whoever posted it — settled straight to
+                    their wallet.
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {stats && (
           <div className="mt-4 grid grid-cols-4 gap-2">

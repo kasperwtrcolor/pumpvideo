@@ -38,7 +38,7 @@ export default function TermsPage() {
         </p>
       </Section>
 
-      <Section title="3. What PumpClip is — and is not">
+      <Section title="3. What Pogo is — and is not">
         <p>To be explicit, because it matters:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>

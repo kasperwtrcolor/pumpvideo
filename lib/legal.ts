@@ -11,12 +11,12 @@
 
 export const LEGAL = {
   /** Trading name shown throughout the app. */
-  product: "PumpClip",
+  product: "Pogo",
   /**
    * The legal entity that operates the app. Replace with your registered
    * company, or your own name if you're operating as an individual.
    */
-  entity: "[LEGAL ENTITY NAME — e.g. PumpClip Ltd, or your full legal name]",
+  entity: "[LEGAL ENTITY NAME — e.g. Pogo Ltd, or your full legal name]",
   /** Where the entity is registered — governs which law applies. */
   jurisdiction: "[JURISDICTION — e.g. England and Wales]",
   /** A monitored inbox. Required by both Apple and Google for app review too. */

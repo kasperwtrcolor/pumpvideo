@@ -55,7 +55,7 @@ export function PrivyRoot({ children }: { children: React.ReactNode }) {
         appearance: {
           theme: "#08080A",
           accentColor: ACCENT,
-          landingHeader: "Log in to PumpClip",
+          landingHeader: "Log in to Pogo",
           loginMessage:
             "A Solana wallet is created for you automatically — no extension, no seed phrase.",
           showWalletLoginFirst: false,
