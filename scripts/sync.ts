@@ -23,6 +23,7 @@
  */
 import { prisma } from "../lib/db";
 import { runKeeper } from "../lib/keeper";
+import { MIN_HOLDERS } from "../lib/holders";
 
 function arg(name: string, fallback: number) {
   const i = process.argv.indexOf(`--${name}`);
@@ -35,6 +36,7 @@ const LIMIT = arg("limit", 40);
 const INGEST = arg("ingest", 0);
 const RECONCILE = arg("reconcile", 0);
 const HOLDERS = arg("holders", 0);
+const DUST = arg("dust", 0);
 
 async function main() {
   const r = await runKeeper({
@@ -42,6 +44,7 @@ async function main() {
     ingest: INGEST,
     reconcile: RECONCILE,
     holders: HOLDERS,
+    dust: DUST,
   });
 
   console.log(
@@ -50,6 +53,9 @@ async function main() {
   );
   if (r.holdersUpdated) {
     console.log(`holders: refreshed ${r.holdersUpdated}`);
+  }
+  if (r.dustHidden) {
+    console.log(`dust: hidden ${r.dustHidden} coins below ${MIN_HOLDERS} holders`);
   }
   if (r.ingested) {
     // Both numbers, so a tick that looked at 40 launches and kept 3 is visibly

@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { MIN_MCAP_SOL } from "./ingest";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
+import { MIN_HOLDERS, holdersForMints } from "./holders";
 
 /**
  * Dead-token retention: take tokens that stopped trading out of the catalogue.
@@ -49,6 +50,27 @@ export const DEFAULT_LIMIT = 2000;
 
 /** `hide` is reversible and is the default. `delete` reclaims disk and is not. */
 export type RetentionMode = "hide" | "delete";
+
+/**
+ * How long a coin gets to find holders before the dust gate may hide it.
+ *
+ * One hour, not zero. Almost every launch has <30 holders in its first minutes
+ * (measured: 92% of fresh launches, median 3), so a gate that fired on arrival
+ * would hide the entire New rail and would never surface a coin that starts tiny
+ * and grows. An hour is long enough for a real launch to accumulate a holder
+ * base and short enough that dust does not linger.
+ */
+export const DUST_MIN_AGE_MS = 60 * 60_000;
+
+/**
+ * How stale a holder count may be and still be trusted for the dust gate.
+ *
+ * The keeper refreshes holders round-robin (50/tick, ~600/hour), so a given
+ * coin's count is refreshed roughly every few hours. Acting on anything older
+ * risks hiding a coin on a stale-low reading — the same "measured vs never
+ * measured" trap this module exists to avoid.
+ */
+export const HOLDER_FRESH_MS = 12 * 60 * 60_000;
 
 export type RetentionCandidate = {
   id: string;
@@ -298,6 +320,83 @@ export async function applyRetention(
 }
 
 /**
+ * Dust gate — hide coins that are old enough to know better and still have
+ * almost no holders.
+ *
+ * This is the cheap half of retention. `planRetention` above costs a live
+ * pump.fun sweep because it must tell "dead" from "nobody looked at it"; this
+ * costs one database read, because a holder count is already the verdict. It
+ * runs every keeper tick (see lib/keeper.ts) and never touches the network.
+ *
+ * WHY HOLDERS AND NOT MARKET CAP
+ *
+ * The ingest floor (MIN_MCAP_SOL) admits anything with a few SOL of apparent
+ * liquidity, and on pump.fun that is trivially manufactured — a dev can seed a
+ * curve alone. Holders are the thing a dev cannot fake for free. Measured on
+ * 2026-10-03: 91% of the catalogue sat below 30 holders, median 2, while real
+ * coins ran to the hundreds. That gap is the whole gate.
+ *
+ * THE TWO GUARDS
+ *
+ *   - holders > 0 AND a fresh `holdersSyncedAt`. A stored 0 means "never
+ *     measured", not "no holders" — hiding on it would take out every coin the
+ *     keeper has not walked yet. A stale count risks the same on a coin that has
+ *     since grown.
+ *   - the dependency guards the dead sweep uses: a coin with a user-uploaded
+ *     clip, an open position, a follower or a trade is never touched. A user's
+ *     content must not be what disappears.
+ *
+ * Reversible by construction: `restoreRevived` un-hides a coin the moment
+ * RugCheck shows it back above MIN_HOLDERS.
+ */
+export async function hideDust(
+  opts: { limit?: number; apply?: boolean } = {},
+): Promise<{ candidates: number; hidden: number }> {
+  const apply = opts.apply !== false;
+  const now = Date.now();
+  const rows = await prisma.coin.findMany({
+    where: {
+      hiddenAt: null,
+      isBanned: false,
+      // Never a graduated coin: those have real pools and hundreds of holders,
+      // so anything flagged complete that reads <30 is bad data, not dust.
+      complete: false,
+      createdAt: { lt: new Date(now - DUST_MIN_AGE_MS) },
+      holders: { gt: 0, lt: MIN_HOLDERS },
+      holdersSyncedAt: { gte: new Date(now - HOLDER_FRESH_MS) },
+      clips: { none: { uploadedById: { not: null } } },
+      positions: { none: {} },
+      followers: { none: {} },
+    },
+    select: { id: true, mint: true },
+    orderBy: { holdersSyncedAt: "asc" },
+    take: opts.limit ?? DEFAULT_LIMIT,
+  });
+  if (rows.length === 0) return { candidates: 0, hidden: 0 };
+
+  // Trade has no foreign key to Coin (coinMint is a plain string), so this guard
+  // is a separate lookup rather than a Prisma relation — same as the dead sweep.
+  const traded = new Set(
+    (
+      await prisma.trade.findMany({
+        where: { coinMint: { in: rows.map((r) => r.mint) } },
+        select: { coinMint: true },
+        distinct: ["coinMint"],
+      })
+    ).map((t) => t.coinMint),
+  );
+  const ids = rows.filter((r) => !traded.has(r.mint)).map((r) => r.id);
+  if (ids.length === 0) return { candidates: rows.length, hidden: 0 };
+  if (!apply) return { candidates: rows.length, hidden: 0 };
+
+  const res = await prisma.coin.updateMany({
+    where: { id: { in: ids } },
+    data: { hiddenAt: new Date() },
+  });
+  return { candidates: rows.length, hidden: res.count };
+}
+
+/**
  * Un-hide coins that came back to life.
  *
  * Hiding has to be reversible or it is just a slow delete with extra steps: a
@@ -322,15 +421,28 @@ export async function restoreRevived(opts: { limit?: number } = {}): Promise<{
     hidden.map((c) => c.mint),
     { errors: sweepErrors },
   );
-  if (sweepErrors.length) {
-    return { checked: hidden.length, restored: 0, sweepErrors };
-  }
+
+  // Holder counts are an independent recovery signal. A coin hidden by the dust
+  // gate is outside the keeper's holder round-robin (that walks visible coins
+  // only), so RugCheck is the only way to see it recover — and it is by-mint,
+  // hence affordable for the hidden set. Without this the hide would be a
+  // one-way door for anything below the pump.fun rankings.
+  const holderCounts = await holdersForMints(hidden.map((c) => c.mint)).catch(
+    () => new Map<string, number>(),
+  );
 
   const revived = hidden.filter((h) => {
-    const hit = found.get(h.mint);
-    if (!hit) return false;
-    const rec = toCoinRecord(hit);
-    return rec.complete || rec.marketCapSol >= MIN_MCAP_SOL;
+    // The sweep only counts when it was complete: a partial sweep cannot tell a
+    // dead coin from one nobody managed to look at.
+    if (sweepErrors.length === 0) {
+      const hit = found.get(h.mint);
+      if (hit) {
+        const rec = toCoinRecord(hit);
+        if (rec.complete || rec.marketCapSol >= MIN_MCAP_SOL) return true;
+      }
+    }
+    const n = holderCounts.get(h.mint);
+    return typeof n === "number" && n >= MIN_HOLDERS;
   });
 
   if (revived.length) {

@@ -45,7 +45,13 @@ set -a; source "$ENV_FILE"; set +a
 # wallet can move without the app (a swap on pump.fun directly, a transfer out),
 # and a mirror built from our own fill log can never notice. This is what makes
 # the book self-correcting instead of wrong forever.
-if ! timeout 300 npm run sync --silent -- --limit 200 --ingest 8 --reconcile 50 --holders 50; then
+#
+# `--dust 500` hides up to 500 coins per tick that are older than an hour and
+# still have fewer than 30 holders (see hideDust in lib/retention.ts). It is pure
+# database work — no external calls — so it runs every tick and keeps the
+# catalogue clean continuously instead of once a day. The 500 is a bound, not a
+# target: on a healthy catalogue this is 0.
+if ! timeout 300 npm run sync --silent -- --limit 200 --ingest 8 --reconcile 50 --holders 50 --dust 500; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi

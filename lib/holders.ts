@@ -19,6 +19,24 @@
 const BASE = "https://api.rugcheck.xyz/v1/tokens";
 const TIMEOUT_MS = 12_000;
 
+/**
+ * Holder floor below which a coin is dust, not a token.
+ *
+ * Measured on 2026-10-03 across the live catalogue: 91% of coins (1,799 of 1,971
+ * with a known count) and 92% of *freshly launched* tokens sit below 30 holders,
+ * with a median of 2-3. Graduated coins run to the hundreds (SUPERPIG 553,
+ * P2P 694, Mr Beast 2,393). So 30 is the line between "a handful of bots and the
+ * dev" and "an actual holder base".
+ *
+ * It is deliberately NOT applied at ingest: 9 in 10 launches have <30 holders in
+ * their first minutes, so gating on arrival would turn the New rail into a board
+ * of things that already pumped and would never pick up a coin that starts tiny
+ * and grows. It gates the *catalogue* instead, once a coin is older than an hour
+ * (see `hideDust` in lib/retention.ts).
+ */
+export const MIN_HOLDERS = 30;
+
+
 /** Holder count for one mint, or null when the report is unavailable. */
 async function fetchHolders(mint: string): Promise<number | null> {
   try {

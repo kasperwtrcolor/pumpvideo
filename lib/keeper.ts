@@ -33,6 +33,7 @@ import { ingestNewTokens } from "./ingest";
 import { holdersForMints } from "./holders";
 import { reconcilePositions } from "./reconcile";
 import type { ReconcileResult } from "./reconcile";
+import { hideDust } from "./retention";
 import { solUsd } from "./sol-price";
 import { VISIBLE_COIN } from "./visibility";
 
@@ -57,6 +58,8 @@ export type SyncResult = {
   reconciled: ReconcileResult | null;
   /** Coins whose holder count was refreshed this tick (0 when the step is off). */
   holdersUpdated?: number;
+  /** Dust coins hidden this tick by the holder gate (0 when the step is off). */
+  dustHidden?: number;
 };
 
 /** totalSupply is raw units with 6 decimals. */
@@ -152,6 +155,16 @@ export async function runKeeper(opts: {
    * one's.
    */
   holders?: number;
+  /**
+   * How many dust coins to hide this tick (see `hideDust` in lib/retention.ts),
+   * or 0/undefined to skip.
+   *
+   * The step is pure database work — no network — so it is cheap enough to run
+   * every tick and keeps the catalogue clean continuously rather than once a
+   * day. Off by default for the same reason as the other bulk steps: the
+   * serverless route shares this function and should not be writing in bulk.
+   */
+  dust?: number;
 }): Promise<SyncResult> {
   // Ingest runs FIRST, so coins discovered on this tick are part of the catalog
   // that the refresh below walks — they get a real price immediately instead of
@@ -382,6 +395,20 @@ export async function runKeeper(opts: {
     }
   }
 
+  // ---- dust gate ----------------------------------------------------------
+  // Runs after the holder refresh so it sees the counts just written. No network
+  // and no sweep, so it is safe to run every tick — this is what keeps the
+  // catalogue clean continuously instead of once a day.
+  let dustHidden = 0;
+  if (opts.dust && opts.dust > 0) {
+    try {
+      const r = await hideDust({ limit: opts.dust });
+      dustHidden = r.hidden;
+    } catch (e) {
+      errors.push(`dust: ${(e as Error).message.slice(0, 90)}`);
+    }
+  }
+
   let note: string | undefined;
   if (updated === 0 && coins.length > 0) {
     note = sweepErrors.length
@@ -405,5 +432,6 @@ export async function runKeeper(opts: {
     ingested,
     reconciled,
     holdersUpdated,
+    dustHidden,
   };
 }

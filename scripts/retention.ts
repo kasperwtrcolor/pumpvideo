@@ -23,8 +23,9 @@
  * budget to re-derive an answer that changes on the order of days.
  */
 import { prisma } from "../lib/db";
-import { planRetention, applyRetention, restoreRevived } from "../lib/retention";
+import { planRetention, applyRetention, restoreRevived, hideDust } from "../lib/retention";
 import { DEFAULT_GRACE_DAYS, DEFAULT_LIMIT } from "../lib/retention";
+import { MIN_HOLDERS } from "../lib/holders";
 
 function numArg(name: string, fallback: number): number {
   const i = process.argv.indexOf(`--${name}`);
@@ -45,6 +46,16 @@ async function main() {
     return;
   }
   const mode = HARD ? "delete" : "hide";
+
+  // Dust gate first. It is a single database read (no sweep) and it removes the
+  // bulk of the catalogue, so the expensive dead-token sweep below has far less
+  // to consider. `--hard` is deliberately not honoured here: a sub-30-holder
+  // coin can still recover, so these are only ever hidden, never deleted.
+  const dust = await hideDust({ limit: LIMIT, apply: APPLY });
+  console.log(
+    `dust: ${dust.candidates} coins older than 1h below ${MIN_HOLDERS} holders` +
+      (APPLY ? `, hidden ${dust.hidden}` : " (dry run — pass --apply to hide)"),
+  );
 
   const plan = await planRetention({ graceDays: GRACE, limit: LIMIT });
 
@@ -102,14 +113,16 @@ async function main() {
   );
 
   const revived = await restoreRevived({ limit: LIMIT });
-  if (revived.sweepErrors.length) {
-    console.log(
-      `  restore skipped — incomplete sweep (${revived.sweepErrors.length} page failure(s))`,
-    );
-  } else if (revived.restored > 0) {
-    console.log(`  restored ${revived.restored} of ${revived.checked} that traded again`);
+  if (revived.restored > 0) {
+    console.log(`  restored ${revived.restored} of ${revived.checked} that recovered`);
   } else {
     console.log(`  nothing to restore (${revived.checked} hidden coins checked)`);
+  }
+  if (revived.sweepErrors.length) {
+    console.log(
+      `  note: pump.fun sweep incomplete (${revived.sweepErrors.length} page failure(s)); ` +
+        `restore fell back to holder counts only`,
+    );
   }
 }
 
