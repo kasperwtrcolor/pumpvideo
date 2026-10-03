@@ -25,6 +25,14 @@ set -a; source "$ENV_FILE"; set +a
 
 # Bounded so a hung network call can't stack up overlapping cron runs.
 #
+# `--limit 200` is the coverage knob, and it has to exceed the number of coins
+# that can plausibly clear the Top rail's $100k floor. Top trusts a coin's stored
+# market cap only if the keeper measured it recently (see app/api/feed/route.ts),
+# so any coin above the floor that the keeper does not walk each tick would drift
+# out of the freshness window and silently fall off Top even though it is alive.
+# The floor sits around 170 coins on a typical day, so 200 covers them with
+# headroom while keeping the Dexscreener fan-out to single-digit batches.
+#
 # `--ingest 8` also pulls the newest 8 launched tokens each tick and runs them
 # through the filters in lib/ingest.ts (min market cap, must have art, not
 # banned, not already pruned by the retention sweep). That is what keeps the feed
@@ -37,7 +45,7 @@ set -a; source "$ENV_FILE"; set +a
 # wallet can move without the app (a swap on pump.fun directly, a transfer out),
 # and a mirror built from our own fill log can never notice. This is what makes
 # the book self-correcting instead of wrong forever.
-if ! timeout 180 npm run sync --silent -- --ingest 8 --reconcile 50; then
+if ! timeout 300 npm run sync --silent -- --limit 200 --ingest 8 --reconcile 50; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi
