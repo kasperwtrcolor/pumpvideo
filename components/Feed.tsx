@@ -9,6 +9,7 @@ import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
 import { CommentSheet } from "./CommentSheet";
 import { ShareSheet } from "./ShareSheet";
+import { DeleteClipSheet } from "./DeleteClipSheet";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
@@ -95,7 +96,7 @@ export function Feed({
   /** Open the share sheet on arrival — the "you just published this" flow. */
   autoShare?: boolean;
 }) {
-  const { toast, refresh } = useTrader();
+  const { toast, refresh, trader } = useTrader();
   const { enabled: authEnabled, authenticated, login, getToken } = useAuth();
 
   /** A single-token wall, not a rail. */
@@ -139,6 +140,8 @@ export function Feed({
   const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
   /** The clip whose share sheet is up, if any. */
   const [shareFor, setShareFor] = useState<FeedItemDTO | null>(null);
+  /** The viewer's own clip being considered for deletion, if any. */
+  const [deleteFor, setDeleteFor] = useState<FeedItemDTO | null>(null);
   const [solUsd, setSolUsd] = useState(initialSolUsd);
   // Live prices from /api/quotes, keyed by mint. Anything absent falls back to
   // the price the feed shipped with.
@@ -666,6 +669,11 @@ export function Feed({
             onBuy={() => setSheetIdx(i)}
             onShare={() => setShareFor(it)}
             onComment={() => setCommentFor(it)}
+            // Only the creator can offer deletion, and only for a clip they
+            // really own. The server re-checks; this just keeps the control off
+            // everyone else's screen.
+            isOwner={Boolean(trader?.id && it.creatorId && it.creatorId === trader.id)}
+            onDelete={() => setDeleteFor(it)}
           />
         ))}
 
@@ -762,6 +770,23 @@ export function Feed({
         />
       )}
 
+      {deleteFor && (
+        <DeleteClipSheet
+          clipId={deleteFor.id}
+          symbol={deleteFor.coin.symbol}
+          open
+          onClose={() => setDeleteFor(null)}
+          onDeleted={() => {
+            // Drop it from the wall immediately. Re-fetching would also work but
+            // would briefly show the clip the user just killed, which reads as
+            // the delete having failed.
+            const gone = deleteFor.id;
+            setItems((prev) => prev.filter((x) => x.id !== gone));
+            setDeleteFor(null);
+          }}
+        />
+      )}
+
       {commentFor && (
         <CommentSheet
           clipId={commentFor.id}
@@ -797,6 +822,8 @@ function ClipPanel({
   onBuy,
   onShare,
   onComment,
+  isOwner,
+  onDelete,
 }: {
   item: FeedItemDTO;
   index: number;
@@ -815,6 +842,9 @@ function ClipPanel({
   onBuy: () => void;
   onShare: () => void;
   onComment: () => void;
+  /** True when the viewer uploaded this clip — the only case deletion is shown. */
+  isOwner: boolean;
+  onDelete: () => void;
 }) {
   const { coin } = item;
   const vid = useRef<HTMLVideoElement>(null);
@@ -1077,6 +1107,23 @@ function ClipPanel({
           )}
           <span className="text-white/50">·</span>
           <span className="text-white/60">{fmtCount(counts.views)} views</span>
+          {/* Deleting your own clip. Kept to a quiet glyph on the author line —
+              it belongs to the poster and should be invisible to everyone else,
+              not a loud button shouting at a viewer who cannot use it. */}
+          {isOwner && (
+            <button
+              onClick={onDelete}
+              aria-label="Delete this clip"
+              title="Delete this clip"
+              className="ml-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/80 active:scale-95"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <circle cx="5" cy="12" r="1.4" />
+                <circle cx="12" cy="12" r="1.4" />
+                <circle cx="19" cy="12" r="1.4" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <p className="line-clamp-2 text-[15px] font-medium text-white/95 text-glow">

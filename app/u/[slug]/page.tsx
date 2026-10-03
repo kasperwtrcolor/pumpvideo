@@ -124,7 +124,7 @@ export default function ProfilePage({ params }: { params: Promise<{ slug: string
             return (
               <li key={c.id}>
                 <Link
-                  href={`/coin/${encodeURIComponent(c.coin.symbol)}`}
+                  href={`/t/${c.coin.mint}`}
                   className="press relative block aspect-[9/16] overflow-hidden rounded-md border border-line bg-panel2"
                 >
                   {thumb ? (

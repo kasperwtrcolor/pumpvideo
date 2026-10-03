@@ -203,6 +203,49 @@ export function objectOwnedBy(object: string, ownerId: string): boolean {
 }
 
 /**
+ * The object path inside a `downloadUrl`, or null when the URL is not one of
+ * ours.
+ *
+ * Needed to delete a clip's file: the row stores the *serving* URL (which has to
+ * outlive a signed one), and that URL is the only place the object path still
+ * exists once the upload request is over.
+ */
+export function objectFromDownloadUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.endsWith("firebasestorage.googleapis.com")) return null;
+    const marker = "/o/";
+    const i = u.pathname.indexOf(marker);
+    if (i === -1) return null;
+    return decodeURIComponent(u.pathname.slice(i + marker.length));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete one object from the bucket.
+ *
+ * Uses the JSON API (not the XML one) because the object name is a path with
+ * slashes and must be percent-encoded whole — `/o/clips%2F<id>%2F…`, not
+ * `/clips/<id>/…`.
+ *
+ * Throws on failure so the caller can decide; a missing object (404) is treated
+ * as success, since the goal state — the file is gone — already holds.
+ */
+export async function deleteObject(object: string): Promise<void> {
+  const token = await accessToken();
+  const bucket = storageBucket();
+  const res = await fetch(
+    `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(object)}`,
+    { method: "DELETE", headers: { authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`storage delete failed: ${res.status}`);
+  }
+}
+
+/**
  * Mint a Google OAuth access token from the service account.
  *
  * Only needed for *administration* (bucket CORS), not for signing. The classic
