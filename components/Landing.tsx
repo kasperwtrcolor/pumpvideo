@@ -4,7 +4,10 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useAuth } from "./AuthBridge";
 import type { LandingTile } from "@/lib/landing";
 import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
-import { PersonIcon } from "./Icons";
+import { PersonIcon, XIcon } from "./Icons";
+import { LogoMark } from "./Logo";
+import { MascotStack } from "./Mascots";
+import { X_HANDLE, X_URL } from "@/lib/social";
 
 /**
  * The welcome screen — the first thing a signed-out visitor sees, and the thing
@@ -99,8 +102,7 @@ export function Landing({ tiles }: { tiles: LandingTile[] }) {
 
         <div className="relative flex h-full flex-col justify-end px-6 pb-[calc(env(safe-area-inset-bottom)+1.75rem)] pt-10">
           <div className="rise-in flex items-center gap-2.5" style={{ animationDelay: "40ms" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="" width={34} height={34} className="rounded-[10px]" />
+            <LogoMark size={34} />
             <span className="text-[15px] font-black tracking-[0.18em] text-ink">PEMP</span>
           </div>
 
@@ -138,9 +140,26 @@ export function Landing({ tiles }: { tiles: LandingTile[] }) {
             </button>
           </div>
 
+          {/* The community door: the mascots from the banner, and the one
+              outbound link on this screen. */}
+          <a
+            href={X_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Follow Pemp on X, ${X_HANDLE}`}
+            className="rise-in mt-3 flex items-center justify-center gap-3 rounded-2xl border border-line bg-panel/70 py-3 text-[13px] font-bold text-ink active:scale-[0.99]"
+            style={{ animationDelay: "300ms" }}
+          >
+            <MascotStack size={26} />
+            <span className="flex items-center gap-1.5">
+              <XIcon className="h-3.5 w-3.5" />
+              Follow {X_HANDLE}
+            </span>
+          </a>
+
           <p
             className="rise-in mt-4 text-center text-[11px] leading-relaxed text-muted"
-            style={{ animationDelay: "310ms" }}
+            style={{ animationDelay: "360ms" }}
           >
             {enabled
               ? "Email, Google or X. Pemp never holds your keys or your funds."

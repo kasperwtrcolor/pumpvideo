@@ -301,3 +301,10 @@ export const USER_CARD_SELECT = {
   followerCount: true,
   followingCount: true,
 } as const;
+
+/**
+ * The app's own X account — distinct from the `X` Privy login provider and from
+ * the share-to-X intents. Kept here so the handle is never retyped.
+ */
+export const X_HANDLE = "@pempfun1";
+export const X_URL = "https://x.com/pempfun1";

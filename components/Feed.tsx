@@ -19,6 +19,7 @@ import { getUnread, subscribeUnread } from "@/lib/unread";
 import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
 import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
+import { Mascot } from "./Mascots";
 
 type Sort = "movers" | "new" | "top";
 type Scope = "all" | "following";
@@ -695,6 +696,7 @@ export function Feed({
                 </>
               ) : (
                 <>
+                  <Mascot name="dog" size={76} />
                   <p className="text-lg font-bold">Nothing here yet.</p>
                   <p className="text-xs text-muted">
                     You are not following anyone. Follow a creator or a token and their clips
@@ -710,6 +712,7 @@ export function Feed({
               )
             ) : single ? (
               <>
+                <Mascot name="cat" size={76} />
                 <p className="text-lg font-bold">No clips for ${sym(tokenSymbol ?? "")} yet.</p>
                 <p className="text-xs text-muted">Be the first to clip it.</p>
                 <Link
@@ -721,6 +724,7 @@ export function Feed({
               </>
             ) : (
               <>
+                <Mascot name="pepe" size={76} />
                 <p className="text-lg font-bold">Nothing on the wall yet.</p>
                 <p className="text-xs text-muted">
                   Upload a clip and bind it to a token to get the feed started.
