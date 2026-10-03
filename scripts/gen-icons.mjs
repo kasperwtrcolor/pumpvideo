@@ -65,5 +65,10 @@ const entries = frames.map((buf, i) => {
   return e;
 });
 
-writeFileSync(root + "public/favicon.ico", Buffer.concat([header, ...entries, ...frames]));
-console.log("wrote public/favicon.ico", sizes.join("/"));
+const ico = Buffer.concat([header, ...entries, ...frames]);
+// Both locations: the app-router file convention (app/favicon.ico) wins over
+// public/, so writing only one of them leaves a stale tab icon behind.
+for (const rel of ["app/favicon.ico", "public/favicon.ico"]) {
+  writeFileSync(root + rel, ico);
+  console.log("wrote", rel, sizes.join("/"));
+}
