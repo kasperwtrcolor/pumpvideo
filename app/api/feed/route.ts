@@ -31,21 +31,6 @@ type Sort = "movers" | "new" | "top";
  */
 const POOL = 2000;
 
-/**
- * How many coins the Movers wall draws from.
- *
- * Movers is "the biggest price movers", and a fixed percentage floor is the
- * wrong instrument for that: market caps span six orders of magnitude, so a
- * floor that catches a micro-cap's wiggle is blind to a liquid major's, and a
- * floor tight enough for the majors empties the wall. Ranking by 24h change and
- * taking the top N is self-scaling — it always yields a full wall of the
- * genuinely most-moved coins, whatever the day's market is doing — and it keeps
- * Movers distinct from the catalog, which a floor that most coins clear would
- * not (under a shuffle the sort only picks the pool; a pool of everything makes
- * the rail decorative).
- */
-const MOVERS_POOL = 40;
-
 /** How far back "New" looks. A new token, not a new clip. */
 const NEW_WINDOW_MS = 60 * 60_000;
 
@@ -319,9 +304,7 @@ export async function GET(req: NextRequest) {
     const pool = await prisma.clip.findMany({
       where,
       orderBy,
-      // Movers permutes only its top movers, so the wall is a gainers board even
-      // after the shuffle; every other rail permutes the whole working set.
-      take: sort === "movers" ? Math.min(MOVERS_POOL, total) : Math.min(POOL, total),
+      take: Math.min(POOL, total),
       select: { id: true },
     });
 
@@ -337,14 +320,14 @@ export async function GET(req: NextRequest) {
     // clip that was appended.
     total = Math.max(total, ids.length);
 
-    // New is chronological: the order *is* the meaning ("the latest launches"),
-    // so the shuffle is skipped and the pool's launchedAt-desc order stands as
-    // the pool was already ordered. Every other rail permutes, because their
-    // order carries no signal a viewer reads — Top is a set, not a sequence.
-    const seq =
-      sort === "new"
-        ? ids.map((id) => ({ id }))
-        : seededShuffle(ids.map((id) => ({ id })), seed);
+    // New and Movers are ranked rails: the order *is* the meaning ("the latest
+    // launches", "the biggest movers"), so the shuffle is skipped and the pool's
+    // own order stands. Every other rail permutes, because its order carries no
+    // signal a viewer reads — Top is a set, not a sequence.
+    const ranked = sort === "new" || sort === "movers";
+    const seq = ranked
+      ? ids.map((id) => ({ id }))
+      : seededShuffle(ids.map((id) => ({ id })), seed);
     const page = seq.slice(offset, offset + limit);
     clips = await loadClips(page.map((p) => p.id));
   } else {
