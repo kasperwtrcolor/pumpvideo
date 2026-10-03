@@ -7,8 +7,9 @@ import type { SearchResponse, TokenHitDTO, UserCardDTO } from "@/lib/types";
 import { FollowButton, TokenFollowButton } from "@/components/FollowButton";
 import { SearchIcon } from "@/components/Icons";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { useTrader } from "@/components/TraderProvider";
 import { artUrl } from "@/lib/art-url";
-import { fmtPct, fmtPrice, fmtSol, sym } from "@/lib/format";
+import { fmtPct, fmtPrice, fmtUsd, sym } from "@/lib/format";
 
 /**
  * One search box for both people and tokens.
@@ -203,10 +204,11 @@ function SearchInner() {
 }
 
 function TokenRow({ t }: { t: TokenHitDTO }) {
+  const { solUsd } = useTrader();
   const up = t.change24hPct >= 0;
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
-      <Link href={`/coin/${encodeURIComponent(t.symbol)}`} className="flex min-w-0 flex-1 items-center gap-3">
+      <Link href={`/t/${t.mint}`} className="flex min-w-0 flex-1 items-center gap-3">
         <CoinAvatar src={t.imageUrl} symbol={t.symbol} className="h-10 w-10 rounded-full border border-line" />
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-bold">
@@ -216,7 +218,7 @@ function TokenRow({ t }: { t: TokenHitDTO }) {
           <span className="flex items-center gap-2 text-[11px] text-muted tabular-nums">
             <span>{fmtPrice(t.priceSol)} SOL</span>
             <span className={up ? "text-up" : "text-down"}>{fmtPct(t.change24hPct)}</span>
-            <span>MC {fmtSol(t.marketCapSol)}</span>
+            <span>MC {fmtUsd(t.marketCapSol * solUsd)}</span>
           </span>
         </span>
       </Link>

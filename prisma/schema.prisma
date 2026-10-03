@@ -50,6 +50,16 @@ model Coin {
   holders      Int   @default(0)
   volume24hSol Float @default(0)
 
+  /// Trailing-24h transaction count (buys + sells), from Dexscreener. This is
+  /// what the Hot rail ranks on — "the busiest tokens" — rather than a price
+  /// move, which is a different question. Only coins with an AMM pool have a
+  /// Dexscreener pair, so on-curve launches read 0 and do not rank.
+  txns24h Float @default(0)
+  /// When `holders` was last refreshed from RugCheck. Doubles as the
+  /// round-robin cursor the keeper walks, so every coin's count ages out and
+  /// gets re-read instead of the same few being refreshed forever.
+  holdersSyncedAt DateTime?
+
   complete    Boolean @default(false) // bonding curve filled -> graduated to AMM
   isBanned    Boolean @default(false) // pump.fun moderation flag; hide from feed
   /// Retention state, set by the dead-token sweep (lib/retention.ts) when a coin

@@ -16,6 +16,10 @@
  * whose stored holding has drifted (see lib/reconcile.ts). Also off by default
  * for the same reason — one RPC read per position — and also opted into by the
  * VPS cron.
+ *
+ * `--holders N` refreshes holder counts for N coins (oldest-refreshed first,
+ * from RugCheck). By-mint, so it is a round-robin rather than a sweep; off by
+ * default, opted into by the VPS cron.
  */
 import { prisma } from "../lib/db";
 import { runKeeper } from "../lib/keeper";
@@ -30,14 +34,23 @@ function arg(name: string, fallback: number) {
 const LIMIT = arg("limit", 40);
 const INGEST = arg("ingest", 0);
 const RECONCILE = arg("reconcile", 0);
+const HOLDERS = arg("holders", 0);
 
 async function main() {
-  const r = await runKeeper({ limit: LIMIT, ingest: INGEST, reconcile: RECONCILE });
+  const r = await runKeeper({
+    limit: LIMIT,
+    ingest: INGEST,
+    reconcile: RECONCILE,
+    holders: HOLDERS,
+  });
 
   console.log(
     `sync: checked ${r.checked}, updated ${r.updated} ` +
       `(dex ${r.viaDex} / pumpfun ${r.viaPumpfun}), notFound ${r.notFound}`,
   );
+  if (r.holdersUpdated) {
+    console.log(`holders: refreshed ${r.holdersUpdated}`);
+  }
   if (r.ingested) {
     // Both numbers, so a tick that looked at 40 launches and kept 3 is visibly
     // working rather than suspiciously quiet.

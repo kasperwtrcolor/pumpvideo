@@ -46,7 +46,7 @@ const POOL = 2000;
 const HOT_POOL = 40;
 
 /** How far back "New" looks. A new token, not a new clip. */
-const NEW_WINDOW_MS = 30 * 60_000;
+const NEW_WINDOW_MS = 60 * 60_000;
 
 /** "Top" means a market cap of at least this many USD. */
 const TOP_MIN_USD = 100_000;
@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
   // some clips and repeating others.
   //
   // Hot, New and Top rank by a property of the *coin*, not the clip:
-  //   Hot — the biggest 5-minute *increase*, so it is a gainers board.
+  //   Hot — the most trades in the trailing 24 hours, so it is an activity board.
   //   New — coins launched most recently.
   //   Top — the largest market caps.
   // `rank` (and then `id`) breaks ties so a wall of equal-scoring coins still has
@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
       : sort === "top"
         ? [{ coin: { marketCapSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
         : sort === "hot"
-          ? [{ coin: { change5mPct: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+          ? [{ coin: { txns24h: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
           : [{ rank: "desc" as const }, { id: "asc" as const }];
 
   // SOL/USD is needed up here because the Top floor is a USD figure and market
@@ -231,12 +231,14 @@ export async function GET(req: NextRequest) {
   const buildWhere = (gate: boolean) => {
     const coin: Prisma.CoinWhereInput = mint ? { mint } : { ...VISIBLE_COIN };
     if (gate && !mint) {
-      // Hot is a gainers board: coins that are *up* over the last five minutes,
-      // biggest rise first. A coin that fell is not hot, it is just down.
-      if (sort === "hot") coin.change5mPct = { gt: 0 };
-      // New is new *tokens*, not new clips — a token launched in the last half
-      // hour. `launchedAt` is the real launch time; `createdAt` is the fallback
-      // for the rare coin pump.fun gave us no launch stamp for.
+      // Hot is an activity board: the coins with the most trades in the last
+      // 24 hours, busiest first. A coin nobody is trading is not hot, whatever
+      // its price did. The count comes from Dexscreener, so on-curve launches —
+      // which have no pool to be counted on — read 0 and simply do not rank.
+      if (sort === "hot") coin.txns24h = { gt: 0 };
+      // New is new *tokens*, not new clips — a token launched in the last hour.
+      // `launchedAt` is the real launch time; `createdAt` is the fallback for
+      // the rare coin pump.fun gave us no launch stamp for.
       if (sort === "new") {
         const cut = new Date(Date.now() - NEW_WINDOW_MS);
         coin.OR = [

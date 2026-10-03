@@ -156,7 +156,7 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
                 5m {fmtPct(coin.change5mPct)}
               </span>
               <span className="text-muted tabular-nums">
-                MC {fmtSol(coin.marketCapSol)} SOL · {fmtUsd(coin.marketCapSol * solUsd)}
+                MC {fmtUsd(coin.marketCapSol * solUsd)}
               </span>
             </div>
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { CoinAvatar } from "./CoinAvatar";
-import { fmtPrice, fmtSol, fmtPct, sym } from "@/lib/format";
+import { fmtPrice, fmtSol, fmtPct, fmtUsd, sym } from "@/lib/format";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { getBase58Decoder } from "@solana/kit";
@@ -65,7 +65,7 @@ export function BuySheet({
   onClose: () => void;
   onFilled: (next: { priceSol: number }) => void;
 }) {
-  const { trader, refresh, toast } = useTrader();
+  const { trader, refresh, toast, solUsd } = useTrader();
   const { getAccessToken, login } = usePrivy();
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
@@ -227,7 +227,7 @@ export function BuySheet({
               {coin.name} <span className="text-muted">${sym(coin.symbol)}</span>
             </div>
             <div className="text-[11px] text-muted tabular-nums">
-              {fmtPrice(coin.priceSol)} SOL · MC {fmtSol(coin.marketCapSol)} SOL
+              {fmtPrice(coin.priceSol)} SOL · MC {fmtUsd(coin.marketCapSol * solUsd)}
             </div>
           </div>
           <div className="ml-auto text-right">

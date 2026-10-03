@@ -27,8 +27,8 @@ const SORTS: { key: Sort; label: string; hint: string }[] = [
   // The hint is what the rail *means*, since a one-word label can't carry it.
   // Hot is a gainers board, not "popular"; New is new *tokens*, not new clips;
   // Top is a market-cap floor, not "best".
-  { key: "hot", label: "Hot", hint: "biggest 5-minute increase" },
-  { key: "new", label: "New", hint: "tokens launched in the last 30 minutes" },
+  { key: "hot", label: "Hot", hint: "most trades in the last 24 hours" },
+  { key: "new", label: "New", hint: "tokens launched in the last hour" },
   { key: "top", label: "Top", hint: "market cap $100k and above" },
 ];
 
@@ -1191,7 +1191,7 @@ function ClipPanel({
             </span>
           )}
           <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-semibold text-white/85 tabular-nums">
-            MC {fmtSol(marketCap)} SOL · {fmtUsd(marketCap * solUsd)}
+            MC {fmtUsd(marketCap * solUsd)}
           </span>
           {/* How old the token is — launch time when pump.fun gave us one, else
               the moment it entered the catalogue. */}
@@ -1218,6 +1218,46 @@ function ClipPanel({
             </span>
           )}
         </div>
+
+        {/* The token's own links. They already lived on the coin's detail page,
+            which is now several taps away from the feed — so the people most
+            likely to want the project's X or site never saw it. Floating them
+            here, above the buy button, is the shortest path off-app and back.
+            `rel="noopener"` because these are user-supplied URLs. */}
+        {(coin.website || coin.twitter || coin.telegram) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {coin.website && (
+              <a
+                href={coin.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-white/15 bg-black/55 px-2 py-1 text-[11px] font-bold text-white/90"
+              >
+                site
+              </a>
+            )}
+            {coin.twitter && (
+              <a
+                href={coin.twitter}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-white/15 bg-black/55 px-2 py-1 text-[11px] font-bold text-white/90"
+              >
+                x
+              </a>
+            )}
+            {coin.telegram && (
+              <a
+                href={coin.telegram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-white/15 bg-black/55 px-2 py-1 text-[11px] font-bold text-white/90"
+              >
+                tg
+              </a>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <button

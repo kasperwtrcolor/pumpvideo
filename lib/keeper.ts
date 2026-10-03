@@ -30,6 +30,7 @@ import { prisma } from "./db";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
 import { ingestNewTokens } from "./ingest";
+import { holdersForMints } from "./holders";
 import { reconcilePositions } from "./reconcile";
 import type { ReconcileResult } from "./reconcile";
 import { solUsd } from "./sol-price";
@@ -54,6 +55,8 @@ export type SyncResult = {
   };
   /** Positions brought back in step with the chain, or null if the pass failed. */
   reconciled: ReconcileResult | null;
+  /** Coins whose holder count was refreshed this tick (0 when the step is off). */
+  holdersUpdated?: number;
 };
 
 /** totalSupply is raw units with 6 decimals. */
@@ -138,6 +141,17 @@ export async function runKeeper(opts: {
    * in (see scripts/sync-cron.sh).
    */
   reconcile?: number;
+  /**
+   * How many coins to refresh holder counts for, or 0/undefined to skip.
+   *
+   * Holder counts come from RugCheck, which is by-mint and therefore one call
+   * per coin — so this is a *round-robin* refresh, oldest first, capped per tick
+   * rather than a full sweep. `holdersSyncedAt` is the cursor, which is what
+   * makes coverage exhaustive over time instead of repeatedly re-reading the
+   * same top coins. Off by default: it is a cron job's work, not a serverless
+   * one's.
+   */
+  holders?: number;
 }): Promise<SyncResult> {
   // Ingest runs FIRST, so coins discovered on this tick are part of the catalog
   // that the refresh below walks — they get a real price immediately instead of
@@ -191,7 +205,6 @@ export async function runKeeper(opts: {
     reconciled,
   };
   if (coins.length === 0) return empty;
-
   // Recent price samples, fetched once for the whole catalog. Scoring volatility
   // per coin would be one query per coin per tick (hundreds of round trips);
   // this is a single indexed range read, grouped in memory below. It is read
@@ -261,6 +274,7 @@ export async function runKeeper(opts: {
           // The step sum wins when it is larger, i.e. when the price reversed.
           volatility5m: Math.max(volatility(history, q.priceSol), Math.abs(change5mPct)),
           volume24hSol: usd > 0 ? q.volume24hUsd / usd : coin.volume24hSol,
+          txns24h: q.txns24h,
           lastSyncedAt: new Date(),
         },
       });
@@ -338,6 +352,36 @@ export async function runKeeper(opts: {
     }
   }
 
+  // ---- holder counts (round-robin, from RugCheck) --------------------------
+  // pump.fun publishes no holder count, so this is the only source; it is
+  // by-mint, so a full sweep would be one call per coin. Instead the catalogue
+  // is walked oldest-first and only `opts.holders` coins are read per tick —
+  // over a day that covers far more than the catalogue, and it re-reads the
+  // quiet coins rather than hammering the same popular ones. A coin RugCheck
+  // cannot answer for is left alone: writing 0 would turn "unknown" into a
+  // confident, wrong number on the screen.
+  let holdersUpdated = 0;
+  if (opts.holders && opts.holders > 0) {
+    const targets = await prisma.coin.findMany({
+      where: { ...VISIBLE_COIN },
+      orderBy: [{ holdersSyncedAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
+      take: opts.holders,
+      select: { id: true, mint: true },
+    });
+    const found = await holdersForMints(targets.map((t) => t.mint)).catch(
+      () => new Map<string, number>(),
+    );
+    for (const t of targets) {
+      const n = found.get(t.mint);
+      if (n === undefined) continue;
+      await prisma.coin.update({
+        where: { id: t.id },
+        data: { holders: n, holdersSyncedAt: new Date() },
+      });
+      holdersUpdated++;
+    }
+  }
+
   let note: string | undefined;
   if (updated === 0 && coins.length > 0) {
     note = sweepErrors.length
@@ -360,5 +404,6 @@ export async function runKeeper(opts: {
     note,
     ingested,
     reconciled,
+    holdersUpdated,
   };
 }

@@ -40,7 +40,7 @@ import { artUrl } from "./art-url";
  *   art required  — a token with no image is a blank card in the feed. Better to
  *                   skip it than to ship a black rectangle with a buy button.
  */
-export const MIN_MCAP_SOL = 12;
+export const MIN_MCAP_SOL = 30;
 const MAX_AGE_HOURS = 72;
 
 /** Ranking score, shared so the CLI and the cron can never order the feed differently. */
