@@ -7,6 +7,7 @@ import { BuySheet } from "@/components/BuySheet";
 import type { CoinDTO, ClipDTO } from "@/lib/types";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { Mascot } from "@/components/Mascots";
 import { TokenFollowButton } from "@/components/FollowButton";
 
 type Detail = {
@@ -279,7 +280,8 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
               </div>
             ))}
             {d.trades.length === 0 && (
-              <div className="px-3 py-6 text-center text-xs text-muted">
+              <div className="flex flex-col items-center gap-2 px-3 py-6 text-center text-xs text-muted">
+                <Mascot name="pepe" size={60} />
                 No fills yet — be first.
               </div>
             )}

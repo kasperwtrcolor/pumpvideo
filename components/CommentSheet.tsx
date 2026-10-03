@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CommentDTO } from "@/lib/types";
 import { useAuth } from "./AuthBridge";
+import { EmptyState } from "./Mascots";
 import { timeAgo } from "@/lib/format";
 
 /**
@@ -99,9 +100,13 @@ export function CommentSheet({
 
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto border-t border-line">
           {comments.length === 0 && (
-            <p className="px-4 py-10 text-center text-xs text-muted">
-              No comments yet. Be the first.
-            </p>
+            <EmptyState
+              mascot="dog"
+              size={72}
+              title="No comments yet."
+              body="Be the first."
+              className="py-10"
+            />
           )}
           {comments.map((c) => (
             <div key={c.id} className="flex gap-2.5 border-b border-line px-4 py-3">

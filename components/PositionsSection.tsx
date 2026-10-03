@@ -6,6 +6,7 @@ import type { AccountResponse, CoinDTO } from "@/lib/types";
 import { useTrader } from "@/components/TraderProvider";
 import { BuySheet } from "@/components/BuySheet";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { EmptyState } from "@/components/Mascots";
 import { fmtPct, fmtSol, fmtUsd, sym, timeAgo } from "@/lib/format";
 
 /**
@@ -96,13 +97,20 @@ export function PositionsSection() {
         ))}
 
         {data && data.positions.length === 0 && (
-          <div className="px-3 py-10 text-center text-xs text-muted">
-            No positions.{" "}
-            <Link href="/" className="text-accent">
-              Swipe the feed
-            </Link>{" "}
-            and buy a clip.
-          </div>
+          <EmptyState
+            mascot="cat"
+            size={72}
+            title="No positions."
+            className="py-10"
+            body={
+              <>
+                <Link href="/" className="text-accent">
+                  Swipe the feed
+                </Link>{" "}
+                and buy a clip.
+              </>
+            }
+          />
         )}
       </div>
 

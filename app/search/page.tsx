@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { SearchResponse, TokenHitDTO, UserCardDTO } from "@/lib/types";
 import { FollowButton, TokenFollowButton } from "@/components/FollowButton";
 import { SearchIcon } from "@/components/Icons";
+import { EmptyState, Mascot } from "@/components/Mascots";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { useTrader } from "@/components/TraderProvider";
 import { artUrl } from "@/lib/art-url";
@@ -147,7 +148,7 @@ function SearchInner() {
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         {!res && !loading && (
           <div className="flex flex-col items-center gap-2 px-8 py-16 text-center">
-            <SearchIcon className="h-8 w-8 text-muted" />
+            <Mascot name="dog" size={72} />
             <p className="text-sm font-bold">Find people and tokens</p>
             <p className="text-xs text-muted">
               Search a handle like <span className="text-ink">@dave</span>, a token symbol, a name,
@@ -157,9 +158,12 @@ function SearchInner() {
         )}
 
         {empty && (
-          <div className="px-6 py-16 text-center text-xs text-muted">
-            Nothing matched “{q.trim()}”.
-          </div>
+          <EmptyState
+            mascot="pepe"
+            size={72}
+            title={`Nothing matched “${q.trim()}”.`}
+            className="py-16"
+          />
         )}
 
         {users.length > 0 && (

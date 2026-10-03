@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useTrader } from "@/components/TraderProvider";
 import { sym } from "@/lib/format";
+import { Mascot } from "@/components/Mascots";
 
 /** Must match MAX_UPLOAD_BYTES in lib/gcs.ts. The server is the real gate. */
 const MAX_MB = 25;
@@ -167,7 +168,8 @@ export default function UploadPage() {
     return (
       <div className="no-scrollbar h-full overflow-y-auto">
         <div className="mx-auto max-w-md px-4 pb-24 pt-6 text-center">
-          <h1 className="text-2xl font-black tracking-tight">Upload a clip</h1>
+          <Mascot name="dog" size={92} className="mx-auto" />
+          <h1 className="mt-3 text-2xl font-black tracking-tight">Upload a clip</h1>
           <p className="mt-2 text-xs leading-relaxed text-muted">
             {tokenFromUrl
               ? "Log in and your video goes straight onto the token you were just watching — and you earn 1% of every buy that comes through it."
@@ -316,8 +318,9 @@ export default function UploadPage() {
         {message && <p className="mt-3 text-center text-[11px] font-semibold text-down">{message}</p>}
 
         {done && (
-          <div className="mt-5 rounded-2xl border border-up/40 bg-up/5 p-4 text-center">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-up">Live</div>
+          <div className="mt-5 flex flex-col items-center rounded-2xl border border-up/40 bg-up/5 p-4 text-center">
+            <Mascot name="pepe" size={72} />
+            <div className="mt-2 text-[11px] font-bold uppercase tracking-widest text-up">Live</div>
             <p className="mt-1 text-sm font-bold">
               Your clip is now in the feed for ${sym(done.symbol)}
             </p>

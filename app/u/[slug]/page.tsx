@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { ProfileResponse } from "@/lib/types";
 import { FollowButton } from "@/components/FollowButton";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { EmptyState } from "@/components/Mascots";
 import { artUrl } from "@/lib/art-url";
 import { fmtCount, sym } from "@/lib/format";
 
@@ -114,9 +115,7 @@ export default function ProfilePage({ params }: { params: Promise<{ slug: string
       </div>
 
       {clips.length === 0 ? (
-        <p className="px-6 py-12 text-center text-xs text-muted">
-          No clips yet.
-        </p>
+        <EmptyState mascot="cat" size={72} title="No clips yet." className="py-12" />
       ) : (
         <ul className="grid grid-cols-3 gap-1 p-1">
           {clips.map((c) => {

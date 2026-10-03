@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { NotificationDTO, NotificationsResponse } from "@/lib/types";
 import { useAuth } from "@/components/AuthBridge";
-import { BellIcon } from "@/components/Icons";
+import { EmptyState } from "@/components/Mascots";
 import { artUrl } from "@/lib/art-url";
 import { timeAgo } from "@/lib/format";
 
@@ -58,16 +58,19 @@ export default function NotificationsPage() {
 
   if (enabled && !authenticated) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-        <BellIcon className="h-9 w-9 text-muted" />
-        <p className="text-sm font-bold">Notifications need an account.</p>
-        <button
-          onClick={login}
-          className="press rounded-xl burn-gradient px-5 py-2.5 text-[12px] font-black text-black"
-        >
-          Log in
-        </button>
-      </div>
+      <EmptyState
+        mascot="dog"
+        size={80}
+        title="Notifications need an account."
+        action={
+          <button
+            onClick={login}
+            className="press rounded-xl burn-gradient px-5 py-2.5 text-[12px] font-black text-black"
+          >
+            Log in
+          </button>
+        }
+      />
     );
   }
 
@@ -87,13 +90,13 @@ export default function NotificationsPage() {
       </div>
 
       {items.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 px-8 py-16 text-center">
-          <BellIcon className="h-8 w-8 text-muted" />
-          <p className="text-sm font-bold">Nothing yet.</p>
-          <p className="text-xs text-muted">
-            Follow some people or tokens and their activity lands here.
-          </p>
-        </div>
+        <EmptyState
+          mascot="dog"
+          size={76}
+          title="Nothing yet."
+          body="Follow some people or tokens and their activity lands here."
+          className="py-16"
+        />
       ) : (
         <ul>
           {items.map((n) => (

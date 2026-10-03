@@ -9,6 +9,7 @@ import { PrivySessionSync } from "@/components/PrivySessionSync";
 import { solUsd } from "@/lib/sol-price";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://www.pemp.fun"),
   title: "Pemp — every clip is a coin you can buy",
   description:
     "Swipe short clips. Every clip has its own coin you can buy — real on-chain Solana trading from a wallet you control.",
@@ -21,10 +22,19 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
   },
+  // The share card itself comes from the file convention (app/opengraph-image.png
+  // and app/twitter-image.png), so the absolute URL is built from metadataBase.
   openGraph: {
-    title: "Pemp",
-    description: "Swipe short clips. Every clip is a coin you can buy.",
-    images: ["/og-icon.png"],
+    title: "Pemp — every clip is a coin you can buy",
+    description:
+      "Swipe short clips. Every clip is a coin you can buy — real on-chain Solana trading from a wallet you control.",
+    siteName: "Pemp",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@pempfun1",
+    creator: "@pempfun1",
   },
 };
 

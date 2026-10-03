@@ -7,6 +7,7 @@
  *
  * Each is a transparent PNG, so it sits on any surface without a white box.
  */
+import type { ReactNode } from "react";
 
 export type MascotName = "dog" | "pepe" | "cat" | "solana";
 
@@ -75,5 +76,37 @@ export function MascotStack({ size = 30 }: { size?: number }) {
         />
       ))}
     </span>
+  );
+}
+
+/**
+ * The friendly "nothing here" block, used wherever a screen would otherwise be
+ * one grey line of text. A mascot does the emotional work; the caller supplies
+ * the words and, when there is a way out, the action.
+ */
+export function EmptyState({
+  mascot = "dog",
+  size = 84,
+  title,
+  body,
+  action,
+  className = "",
+}: {
+  mascot?: MascotName;
+  size?: number;
+  title: string;
+  body?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-3 px-8 text-center ${className}`}
+    >
+      <Mascot name={mascot} size={size} />
+      <p className="text-lg font-bold">{title}</p>
+      {body ? <p className="text-xs leading-relaxed text-muted">{body}</p> : null}
+      {action}
+    </div>
   );
 }
