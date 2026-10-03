@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useTrader } from "@/components/TraderProvider";
 import { sym } from "@/lib/format";
@@ -48,6 +49,7 @@ async function failure(res: Response, fallback: string): Promise<Error> {
 export default function UploadPage() {
   const { toast } = useTrader();
   const { login, authenticated, getAccessToken } = usePrivy();
+  const router = useRouter();
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -140,10 +142,18 @@ export default function UploadPage() {
         }),
       });
       if (!regRes.ok) throw await failure(regRes, "the upload could not be registered");
-      const reg = (await regRes.json()) as { coin: { symbol: string; mint: string } };
+      const reg = (await regRes.json()) as {
+        coin: { symbol: string; mint: string };
+        clip: { id: string };
+      };
 
       setDone(reg.coin);
       toast("clip is live", "ok");
+      // Go straight to the clip with the share sheet already open. The upload is
+      // not finished when the bytes land — a creator's next move is to send it
+      // somewhere, and making them hunt for their own clip first is the step
+      // where that gets abandoned.
+      router.push(`/t/${reg.coin.mint}?clip=${encodeURIComponent(reg.clip.id)}&share=1`);
     } catch (e) {
       const m = (e as Error).message;
       setMessage(m);

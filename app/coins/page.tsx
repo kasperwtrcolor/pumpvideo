@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "@/components/TraderProvider";
-import { BuySheet } from "@/components/BuySheet";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
@@ -36,13 +36,13 @@ const SORTS: { key: Sort; label: string }[] = [
 
 export default function CoinsPage() {
   const { solUsd } = useTrader();
+  const router = useRouter();
   const [sort, setSort] = useState<Sort>("hot");
   const [q, setQ] = useState("");
   const [graduated, setGraduated] = useState(false);
   const [rows, setRows] = useState<CoinRow[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sheet, setSheet] = useState<CoinRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -160,9 +160,12 @@ export default function CoinsPage() {
 
         <div className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel">
           {rows.map((c) => (
-            <button
+            // A whole row is the target, and it goes to the token's clip wall —
+            // watching is the reason you tapped a coin, so the first screen shows
+            // its clips rather than a buy dialog. Buying lives on each clip.
+            <Link
               key={c.mint}
-              onClick={() => setSheet(c)}
+              href={`/t/${c.mint}`}
               className="flex w-full items-center gap-3 px-3 py-3 text-left transition hover:bg-panel2"
             >
               <div className="relative h-14 w-11 shrink-0 overflow-hidden rounded-lg bg-panel2">
@@ -217,7 +220,7 @@ export default function CoinsPage() {
                   {fmtPct(c.change24hPct)}
                 </div>
               </div>
-            </button>
+            </Link>
           ))}
 
           {!loading && rows.length === 0 && (
@@ -230,19 +233,6 @@ export default function CoinsPage() {
           )}
         </div>
       </div>
-
-      {sheet && (
-        <BuySheet
-          coin={sheet}
-          open
-          onClose={() => setSheet(null)}
-          onFilled={({ priceSol }) => {
-            setRows((prev) =>
-              prev.map((r) => (r.mint === sheet.mint ? { ...r, priceSol } : r)),
-            );
-          }}
-        />
-      )}
     </div>
   );
 }

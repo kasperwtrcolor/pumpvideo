@@ -111,8 +111,12 @@ export async function GET(req: NextRequest) {
   //   Top — the largest market caps.
   // `rank` (and then `id`) breaks ties so a wall of equal-scoring coins still has
   // a stable order to permute.
-  const orderBy =
-    sort === "new"
+  // A single-token wall is not a ranking, it is a body of work: every clip
+  // bound to one mint, newest first. `sort` describes *which tokens* a rail
+  // draws from, and here there is only one, so it has no say in the order.
+  const orderBy = mint
+    ? [{ createdAt: "desc" as const }, { id: "asc" as const }]
+    : sort === "new"
       ? [{ coin: { launchedAt: "desc" as const } }, { id: "asc" as const }]
       : sort === "top"
         ? [{ coin: { marketCapSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]

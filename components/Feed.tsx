@@ -8,6 +8,7 @@ import { useTrader } from "./TraderProvider";
 import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
 import { CommentSheet } from "./CommentSheet";
+import { ShareSheet } from "./ShareSheet";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
@@ -73,9 +74,32 @@ const countsOf = (it: FeedItemDTO): Counts => ({
   views: it.views,
 });
 
-export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
+export function Feed({
+  initialSolUsd,
+  mint,
+  tokenSymbol,
+  focusClipId,
+  autoShare,
+}: {
+  initialSolUsd: number;
+  /**
+   * When set, the wall is a single token's clips rather than a rail into the
+   * catalogue. The scope and sort controls disappear — there is nothing to
+   * scope or sort — and the clips run newest-first (see the feed API).
+   */
+  mint?: string;
+  /** The token's ticker, for the compact header, before the first page lands. */
+  tokenSymbol?: string;
+  /** A clip to open on, for a deep link. */
+  focusClipId?: string;
+  /** Open the share sheet on arrival — the "you just published this" flow. */
+  autoShare?: boolean;
+}) {
   const { toast, refresh } = useTrader();
   const { enabled: authEnabled, authenticated, login, getToken } = useAuth();
+
+  /** A single-token wall, not a rail. */
+  const single = Boolean(mint);
 
   /**
    * New is the default wall.
@@ -113,6 +137,8 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   const [counts, setCounts] = useState<Record<string, Counts>>({});
   const [sheetIdx, setSheetIdx] = useState<number | null>(null);
   const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
+  /** The clip whose share sheet is up, if any. */
+  const [shareFor, setShareFor] = useState<FeedItemDTO | null>(null);
   const [solUsd, setSolUsd] = useState(initialSolUsd);
   // Live prices from /api/quotes, keyed by mint. Anything absent falls back to
   // the price the feed shipped with.
@@ -137,6 +163,14 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
    * blocked (private mode); the only cost is a fresh order per navigation.
    */
   useEffect(() => {
+    // A single-token wall is a fixed body of clips in a fixed order: there is
+    // nothing to shuffle, so it skips the session seed (and its pool cutoff)
+    // entirely and loads straight away.
+    if (single) {
+      setSeed("");
+      setSince("");
+      return;
+    }
     let s: string | null = null;
     let t: string | null = null;
     try {
@@ -159,7 +193,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     }
     setSeed(s);
     setSince(t);
-  }, []);
+  }, [single]);
 
   const load = useCallback(
     async (
@@ -172,10 +206,18 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     ) => {
       setLoading(true);
       try {
-        const r = await fetch(
-          `/api/feed?sort=${nextSort}&limit=10&offset=${nextOffset}&seed=${encodeURIComponent(nextSeed)}&since=${encodeURIComponent(nextSince)}&scope=${nextScope}`,
-          { cache: "no-store" },
-        );
+        const qs = new URLSearchParams({
+          sort: nextSort,
+          limit: "10",
+          offset: String(nextOffset),
+          seed: nextSeed,
+          since: nextSince,
+          scope: nextScope,
+        });
+        // Narrows the wall to one token. The API drops its rail gates for a mint
+        // request, so what comes back is simply every clip bound to it.
+        if (mint) qs.set("mint", mint);
+        const r = await fetch(`/api/feed?${qs.toString()}`, { cache: "no-store" });
         const j = (await r.json()) as FeedResponse;
         setSolUsd(j.solUsd || initialSolUsd);
         setItems((prev) => (replace ? j.items : [...prev, ...j.items]));
@@ -206,14 +248,18 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
         setLoading(false);
       }
     },
-    [initialSolUsd, toast],
+    [initialSolUsd, toast, mint],
   );
 
   // (Re)load from the top whenever the sort, the seed or the scope changes. A
   // new seed is a fresh permutation and a new scope is a different wall, so in
   // both cases the list has to be rebuilt rather than appended to.
   useEffect(() => {
-    if (!seed || !since) return;
+    // `null` means the seed has not been resolved yet (it is minted after mount,
+    // because sessionStorage does not exist during the server render). An empty
+    // string is a *resolved* seed with no shuffle — which is exactly what a
+    // single-token wall wants, so it must not be treated as "not ready".
+    if (seed === null || since === null) return;
     setItems([]);
     setOffset(0);
     setHasMore(true);
@@ -279,7 +325,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   // Prefetch the next page a screen before the end.
   useEffect(() => {
-    if (seed && since && hasMore && !loading && items.length > 0 && active >= items.length - 3) {
+    if (seed !== null && since !== null && hasMore && !loading && items.length > 0 && active >= items.length - 3) {
       void load(sort, offset, seed, since, scope, false);
     }
   }, [active, hasMore, loading, items.length, offset, sort, seed, since, scope, load]);
@@ -291,6 +337,28 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  /**
+   * Open on a specific clip when arriving from a deep link.
+   *
+   * Two flows use this: a shared link that names the clip, and the
+   * just-published flow, where the uploader is dropped onto their own new clip
+   * with the share sheet already up. It fires once — later pages just append.
+   */
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current || !focusClipId || items.length === 0) return;
+    const idx = items.findIndex((it) => it.id === focusClipId);
+    // Not on the first page. The wall is ordered newest-first, so a just-posted
+    // clip is always index 0; anything deeper was shared long ago and the viewer
+    // can swipe to it. Leaving the wall at the top beats scrolling to a guess.
+    if (idx < 0) return;
+    deepLinked.current = true;
+    setActive(idx);
+    const el = scroller.current?.querySelector(`[data-index="${idx}"]`);
+    if (el instanceof HTMLElement) el.scrollIntoView({ block: "start" });
+    if (autoShare) setShareFor(items[idx]);
+  }, [focusClipId, autoShare, items]);
 
   // Bumped on every quotes refresh so the sparkline redraws with the new samples.
   const [tick, setTick] = useState(0);
@@ -452,43 +520,10 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
     [authenticated, favorited, getToken, login, toast],
   );
 
-  const onShare = useCallback(
-    async (it: FeedItemDTO) => {
-      const url = `${window.location.origin}/coin/${it.coin.symbol}`;
-      try {
-        if (navigator.share) {
-          await navigator.share({ title: `$${it.coin.symbol}`, url });
-        } else {
-          await navigator.clipboard.writeText(url);
-          toast("link copied");
-        }
-      } catch {
-        // The user cancelled the share sheet — that is not a share, so it is not
-        // counted. Recording it would make the number meaningless.
-        return;
-      }
-
-      if (!authenticated) return;
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const r = await fetch(`/api/clips/${it.id}/share`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${token}` },
-        });
-        const j = (await r.json()) as { shares?: number };
-        if (r.ok && typeof j.shares === "number") {
-          setCounts((c) => ({
-            ...c,
-            [it.id]: { ...(c[it.id] ?? countsOf(it)), shares: j.shares as number },
-          }));
-        }
-      } catch {
-        /* the share already happened; a failed count is not worth a toast */
-      }
-    },
-    [authenticated, getToken, toast],
-  );
+  // Sharing is no longer a side effect of this component: it used to fire the
+  // native sheet (or copy a link) directly, which gave the app no room to offer
+  // its own destinations or to show where the link pointed. It now opens
+  // <ShareSheet>, which owns the destinations, the count, and the deep link.
 
   /**
    * Reopen the welcome screen at the watch milestone.
@@ -531,8 +566,32 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
   return (
     <div className="relative h-full">
+      {/* A single token has no rail — no scope, no sort, nothing to reshuffle —
+          so its chrome is just a way back and the token's own name. */}
+      {single && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center gap-2 p-3">
+          <Link
+            href="/coins"
+            className="pointer-events-auto rounded-full border border-white/20 bg-black/45 px-3 py-1.5 text-[12px] font-bold text-white backdrop-blur"
+          >
+            ← coins
+          </Link>
+          <span className="pointer-events-auto rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[12px] font-black text-white backdrop-blur">
+            ${sym(tokenSymbol ?? items[0]?.coin.symbol ?? "")}
+          </span>
+          <button
+            onClick={() => setMuted((m) => !m)}
+            aria-label={muted ? "Unmute" : "Mute"}
+            className="pointer-events-auto ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur"
+          >
+            <VolumeIcon muted={muted} className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* sort rail — sits below the transparent header overlay, which the feed
           renders underneath so the video runs to the top edge of the screen. */}
+      {!single && (
       <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col items-center gap-2 pt-[calc(env(safe-area-inset-top)+5rem)]">
         {/* Which wall. Centred at the top, the way every clip feed does it. */}
         <div className="pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur">
@@ -585,6 +644,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
 
         <NotificationBanner />
       </div>
+      )}
 
       <div ref={scroller} className="snap-feed no-scrollbar h-full overflow-y-scroll">
         {items.map((it, i) => (
@@ -604,7 +664,7 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
             onLike={() => void onLike(it)}
             onFavorite={() => void onFavorite(it)}
             onBuy={() => setSheetIdx(i)}
-            onShare={() => void onShare(it)}
+            onShare={() => setShareFor(it)}
             onComment={() => setCommentFor(it)}
           />
         ))}
@@ -640,6 +700,17 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
                   </Link>
                 </>
               )
+            ) : single ? (
+              <>
+                <p className="text-lg font-bold">No clips for ${sym(tokenSymbol ?? "")} yet.</p>
+                <p className="text-xs text-muted">Be the first to clip it.</p>
+                <Link
+                  href={`/upload?token=${encodeURIComponent(mint ?? "")}`}
+                  className="press rounded-xl burn-gradient px-5 py-2.5 text-[12px] font-black text-black"
+                >
+                  Upload a clip
+                </Link>
+              </>
             ) : (
               <>
                 <p className="text-lg font-bold">Nothing on the wall yet.</p>
@@ -670,6 +741,24 @@ export function Feed({ initialSolUsd }: { initialSolUsd: number }) {
           open
           onClose={() => setSheetIdx(null)}
           onFilled={({ priceSol }) => onFilled(sheetIdx, priceSol)}
+        />
+      )}
+
+      {shareFor && (
+        <ShareSheet
+          clipId={shareFor.id}
+          mint={shareFor.coin.mint}
+          symbol={shareFor.coin.symbol}
+          caption={shareFor.caption}
+          videoUrl={shareFor.videoUrl}
+          open
+          onClose={() => setShareFor(null)}
+          onCount={(n) =>
+            setCounts((c) => ({
+              ...c,
+              [shareFor.id]: { ...(c[shareFor.id] ?? countsOf(shareFor)), shares: n },
+            }))
+          }
         />
       )}
 
