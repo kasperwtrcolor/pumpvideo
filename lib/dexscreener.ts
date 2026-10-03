@@ -38,7 +38,7 @@ export type DexQuote = {
   priceUsd: number;
   liquidityUsd: number;
   volume24hUsd: number;
-  /** Buys + sells over the trailing 24h. The Hot rail ranks on this. */
+  /** Buys + sells over the trailing 24h. Recorded; no rail ranks on it now. */
   txns24h: number;
   change24hPct: number;
   /**

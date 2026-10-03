@@ -75,7 +75,8 @@ function wholeSupply(totalSupply: string): number {
  * strict 5-minute window can hold at most one step — and a coin that ran up and
  * gave it back between two samples would score as if it never moved. Two steps
  * is the shortest window in which a reversal is actually observable, which is
- * the entire point of the Hot ranking ("gained *and* lost").
+ * what a volatility score is meant to capture (a round trip scores higher than a
+ * one-way drift of the same distance).
  */
 const VOLATILITY_WINDOW_MS = 10 * 60_000;
 

@@ -20,14 +20,14 @@ import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome"
 import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
 
-type Sort = "hot" | "new" | "top";
+type Sort = "movers" | "new" | "top";
 type Scope = "all" | "following";
 
 const SORTS: { key: Sort; label: string; hint: string }[] = [
   // The hint is what the rail *means*, since a one-word label can't carry it.
-  // Hot is a gainers board, not "popular"; New is new *tokens*, not new clips;
-  // Top is a market-cap floor, not "best".
-  { key: "hot", label: "Hot", hint: "most trades in the last 24 hours" },
+  // Movers is a price-change board, not "popular"; New is new *tokens*, not new
+  // clips; Top is a market-cap floor, not "best".
+  { key: "movers", label: "Movers", hint: "biggest price moves in 24h" },
   { key: "new", label: "New", hint: "tokens launched in the last hour" },
   { key: "top", label: "Top", hint: "market cap $100k and above" },
 ];
@@ -105,10 +105,10 @@ export function Feed({
   /**
    * New is the default wall.
    *
-   * The app opens on the newest tokens rather than on Hot: Hot is a gainers
-   * board and is empty whenever nothing has moved in the last five minutes, so
-   * opening on it made the front page look broken on a quiet day. "What just
-   * launched" always has an answer.
+   * The app opens on the newest tokens rather than on Movers: Movers is a
+   * price-change board and is empty whenever nothing has moved, so opening on it
+   * made the front page look broken on a quiet day. "What just launched" always
+   * has an answer.
    */
   const [sort, setSort] = useState<Sort>("new");
   // The shuffle seed. Null until after mount: sessionStorage does not exist
@@ -933,8 +933,8 @@ function ClipPanel({
   // moment it entered our catalogue is the honest fallback — it is still "how
   // long this token has been around" from the viewer's side of the screen.
   const age = timeAgo(coin.launchedAt ?? coin.createdAt);
-  // The 5-minute move, the same number the Hot rail ranks on. Signed, so a dump
-  // reads as clearly as a pump.
+  // The 5-minute move, shown on the card. Signed, so a dump reads as clearly as
+  // a pump. (Movers ranks on the 24h change; this is the live short window.)
   const change5m = coin.change5mPct ?? 0;
 
   // The trader's own position, if any. When they hold, the price is coloured
@@ -1177,10 +1177,10 @@ function ClipPanel({
               format={(n) => fmtPct(n)}
             />
           </span>
-          {/* The 5-minute move — the number the Hot rail is ranked on, so a
-              viewer can see *why* a clip surfaced as hot. Hidden at a flat zero
-              (a coin the keeper has not measured yet) rather than printing a
-              meaningless "0.0%". */}
+          {/* The 5-minute move — the live short window, shown alongside the 24h
+              change that Movers ranks on (the number above), so a viewer can see
+              *why* a clip surfaced. Hidden at a flat zero (a coin the keeper has
+              not measured yet) rather than printing a meaningless "0.0%". */}
           {change5m !== 0 && (
             <span
               className={`rounded-md px-2 py-1 text-[11px] font-bold tabular-nums ${

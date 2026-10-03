@@ -10,7 +10,7 @@ export type CoinDTO = {
   change24hPct: number;
   /** Net price move over the trailing ~5 minutes, in percent (signed). */
   change5mPct: number;
-  /** Unsigned recent volatility, what the Hot rail ranks on. */
+  /** Unsigned recent volatility. Kept as a regime signal; no rail ranks on it. */
   volatility5m: number;
   holders: number;
   volume24hSol: number;

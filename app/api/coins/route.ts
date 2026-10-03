@@ -13,12 +13,14 @@ export const dynamic = "force-dynamic";
 const NEW_WINDOW_MS = 60 * 60_000;
 
 /**
- * GET /api/coins?sort=hot|new|top|clips&limit=24&offset=0&q=dog&graduated=0
+ * GET /api/coins?sort=movers|new|top|clips&limit=24&offset=0&q=dog&graduated=0
  * Browsable coin index — the "Coins" tab.
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  const sort = sp.get("sort") || "hot";
+  // "hot" is a legacy alias for the renamed rail; see the feed route.
+  const rawSort = sp.get("sort");
+  const sort = rawSort === "hot" ? "movers" : rawSort || "movers";
   const limit = Math.min(60, Math.max(1, Number(sp.get("limit")) || 24));
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const q = (sp.get("q") || "").trim();
@@ -38,10 +40,18 @@ export async function GET(req: NextRequest) {
         ? [{ marketCapSol: "desc" }, { id: "asc" }]
         : sort === "clips"
           ? [{ clips: { _count: "desc" } }, { id: "asc" }]
-          : [{ marketCapSol: "desc" }, { id: "asc" }];
+          : sort === "movers"
+            ? [{ change24hPct: "desc" }, { id: "asc" }]
+            : [{ marketCapSol: "desc" }, { id: "asc" }];
 
   const filters: Prisma.CoinWhereInput[] = [];
   if (graduatedOnly) filters.push({ complete: true });
+  if (sort === "movers") {
+    // Same definition as the feed rail: a coin must have actually moved. A
+    // stored 0 means "flat, or never measured", and the two must not be mixed —
+    // one label must mean one thing on every surface that implements it.
+    filters.push({ change24hPct: { not: 0 } });
+  }
   if (sort === "new") {
     // The "New" tab is a window on launch time — a token launched in the last
     // hour — mirroring the feed rail. `launchedAt` is the real launch; `createdAt`

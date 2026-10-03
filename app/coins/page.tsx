@@ -8,7 +8,7 @@ import { useTrader } from "@/components/TraderProvider";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
-type Sort = "hot" | "new" | "top" | "clips";
+type Sort = "movers" | "new" | "top" | "clips";
 
 type Stats = {
   coins: number;
@@ -28,7 +28,7 @@ type Stats = {
 type CoinRow = CoinDTO & { clipCount: number; clip: string | null };
 
 const SORTS: { key: Sort; label: string }[] = [
-  { key: "hot", label: "Hot" },
+  { key: "movers", label: "Movers" },
   { key: "new", label: "New" },
   { key: "top", label: "Top" },
   { key: "clips", label: "Via clips" },
@@ -37,7 +37,7 @@ const SORTS: { key: Sort; label: string }[] = [
 export default function CoinsPage() {
   const { solUsd } = useTrader();
   const router = useRouter();
-  const [sort, setSort] = useState<Sort>("hot");
+  const [sort, setSort] = useState<Sort>("movers");
   const [q, setQ] = useState("");
   const [graduated, setGraduated] = useState(false);
   const [rows, setRows] = useState<CoinRow[]>([]);

@@ -252,34 +252,34 @@ async function main() {
   // Token age rides on `createdAt` (with `launchedAt` preferred when pump.fun
   // supplied it). If it were missing the age chip would render "— old", so this
   // is the check that keeps the age honest.
-  console.log("\ntoken age + hot/top ranking");
+  console.log("\ntoken age + movers/top ranking");
   check(
     "every feed coin carries an age (createdAt, or launchedAt)",
     feed.items.every((it) => Boolean(it.coin.launchedAt || it.coin.createdAt)),
     feed.items.map((it) => it.coin.launchedAt ?? it.coin.createdAt ?? "MISSING").slice(0, 1).join(""),
   );
 
-  // Hot is a gainers board: ordered by the 5-minute change, descending, and
-  // gated to coins that are actually up. If the gate matches nothing the feed
-  // falls back to the ranked catalog, in which case every item is unmeasured —
+  // Movers is a gainers board: ordered by the 24h change, descending, and gated
+  // to coins that have actually moved. If the gate matches nothing the feed falls
+  // back to the ranked catalog, in which case every item is unmeasured (flat) —
   // a *mix* is the shape a broken filter would produce and is what this fails on.
-  const hotRes = await fetch(`${BASE}/api/feed?sort=hot&limit=8`);
-  const hot = (await hotRes.json()) as {
-    items: { coin: { change5mPct?: number } }[];
+  const moversRes = await fetch(`${BASE}/api/feed?sort=movers&limit=8`);
+  const movers = (await moversRes.json()) as {
+    items: { coin: { change24hPct?: number } }[];
     total: number;
   };
-  check("hot feed returns items", hot.items.length > 0, `${hot.total} clips`);
-  const hotChg = hot.items.map((it) => it.coin.change5mPct ?? 0);
+  check("movers feed returns items", movers.items.length > 0, `${movers.total} clips`);
+  const mvChg = movers.items.map((it) => it.coin.change24hPct ?? 0);
   check(
-    "hot feed is ordered by 5-minute increase (descending)",
-    hotChg.every((v, i) => i === 0 || hotChg[i - 1] >= v),
-    hotChg.map((v) => `${v.toFixed(2)}%`).join(" ≥ "),
+    "movers feed is ordered by 24h change (descending)",
+    mvChg.every((v, i) => i === 0 || mvChg[i - 1] >= v),
+    mvChg.map((v) => `${v.toFixed(1)}%`).join(" ≥ "),
   );
-  const hotUp = hotChg.filter((v) => v > 0).length;
+  const mvFlat = mvChg.filter((v) => v === 0).length;
   check(
-    "hot feed is a gainers board — all up, or fully ungated",
-    hotUp === 0 || hotUp === hotChg.length,
-    `${hotUp}/${hotChg.length} up over 5m`,
+    "movers feed is gated to moved coins — none flat, or fully ungated",
+    mvFlat === 0 || mvFlat === mvChg.length,
+    `${mvFlat}/${mvChg.length} flat`,
   );
 
   // New is new *tokens*: launched within the last 30 minutes, newest first. Same

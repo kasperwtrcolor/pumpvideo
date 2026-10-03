@@ -35,25 +35,30 @@ model Coin {
 
   priceSol     Float @default(0) // SOL per whole token
   marketCapSol Float @default(0)
+  /// Net price change over 24h, in percent — what the Movers rail ranks on.
+  /// From Dexscreener's `h24` for graduated coins, and from the delta against our
+  /// own 24h-old PricePoint for on-curve ones. For a coin younger than 24h the
+  /// baseline is its first sample, so a fresh graduation legitimately reads as a
+  /// very large percentage.
   change24hPct Float @default(0)
   /// Net price move over the trailing ~5 minutes, in percent. Sourced from
   /// Dexscreener's native `m5` for graduated coins, and from the delta between
   /// our own consecutive PricePoints for on-curve ones (the keeper samples every
   /// 5 minutes, so one sample back *is* the 5-minute mark).
   change5mPct  Float @default(0)
-  /// Unsigned 5-minute volatility, used to rank the Hot feed. It is the sum of
-  /// absolute step moves across the recent samples, not the size of the net
-  /// move — so a coin that ran up *and* gave it back (a genuine reversal) scores
-  /// higher than one that drifted the same distance in a straight line. That is
-  /// what "gained and lost" means: both directions, both ranked.
+  /// Unsigned 5-minute volatility: the sum of absolute step moves across recent
+  /// samples, not the size of the net move — so a coin that ran up *and* gave it
+  /// back (a genuine reversal) scores higher than one that drifted the same
+  /// distance in a straight line. Kept as a regime/climate signal; nothing ranks
+  /// on it since the rail that did (Hot) became Movers and switched to 24h change.
   volatility5m Float @default(0)
   holders      Int   @default(0)
   volume24hSol Float @default(0)
 
-  /// Trailing-24h transaction count (buys + sells), from Dexscreener. This is
-  /// what the Hot rail ranks on — "the busiest tokens" — rather than a price
-  /// move, which is a different question. Only coins with an AMM pool have a
-  /// Dexscreener pair, so on-curve launches read 0 and do not rank.
+  /// Trailing-24h transaction count (buys + sells), from Dexscreener. Recorded
+  /// but no longer ranked on: the rail that used it (Hot) is now Movers and
+  /// ranks on 24h price change instead. Only coins with an AMM pool have a
+  /// Dexscreener pair, so on-curve launches read 0.
   txns24h Float @default(0)
   /// When `holders` was last refreshed from RugCheck. Doubles as the
   /// round-robin cursor the keeper walks, so every coin's count ages out and

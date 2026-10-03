@@ -146,8 +146,9 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
               >
                 24h {fmtPct(coin.change24hPct)}
               </span>
-              {/* The trailing 5-minute move — the same number the Hot rail ranks
-                  on. Shown so the ranking is legible, not a black box. */}
+              {/* The trailing 5-minute move — the live short window, shown next
+                  to the 24h change Movers ranks on, so the number is legible
+                  rather than a black box. */}
               <span
                 className={`rounded px-1.5 py-0.5 font-bold tabular-nums ${
                   coin.change5mPct >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"

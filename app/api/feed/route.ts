@@ -11,7 +11,7 @@ import { seededShuffle } from "@/lib/shuffle";
 
 export const dynamic = "force-dynamic";
 
-type Sort = "hot" | "new" | "top";
+type Sort = "movers" | "new" | "top";
 
 /**
  * Upper bound on how many clips the shuffle draws from.
@@ -24,26 +24,27 @@ type Sort = "hot" | "new" | "top";
  * term and landed under the cut permanently; the person who posted it could not
  * see it in the feed at all.
  *
- * The rails' *gates* are what give a sort its meaning under a shuffle (Hot's
- * top 40 gainers, Top's market-cap floor, New's window), so a pool that covers
+ * The rails' *gates* are what give a sort its meaning under a shuffle (Movers'
+ * top 40 movers, Top's market-cap floor, New's window), so a pool that covers
  * the catalog costs the ranking nothing and stops the cap from silently hiding
  * content.
  */
 const POOL = 2000;
 
 /**
- * How many coins the Hot wall draws from.
+ * How many coins the Movers wall draws from.
  *
- * Hot is "the movers", and a fixed percentage floor is the wrong instrument for
- * that: market caps span six orders of magnitude, so a floor that catches a
- * micro-cap's wiggle is blind to a liquid major's, and a floor tight enough for
- * the majors empties the wall. Ranking by volatility and taking the top N is
- * self-scaling — it always yields a full wall of the genuinely most-moved coins,
- * whatever the day's market is doing — and it keeps Hot distinct from the
- * catalog, which a floor that most coins clear would not (under a shuffle the
- * sort only picks the pool; a pool of everything makes the rail decorative).
+ * Movers is "the biggest price movers", and a fixed percentage floor is the
+ * wrong instrument for that: market caps span six orders of magnitude, so a
+ * floor that catches a micro-cap's wiggle is blind to a liquid major's, and a
+ * floor tight enough for the majors empties the wall. Ranking by 24h change and
+ * taking the top N is self-scaling — it always yields a full wall of the
+ * genuinely most-moved coins, whatever the day's market is doing — and it keeps
+ * Movers distinct from the catalog, which a floor that most coins clear would
+ * not (under a shuffle the sort only picks the pool; a pool of everything makes
+ * the rail decorative).
  */
-const HOT_POOL = 40;
+const MOVERS_POOL = 40;
 
 /** How far back "New" looks. A new token, not a new clip. */
 const NEW_WINDOW_MS = 60 * 60_000;
@@ -73,7 +74,7 @@ const TOP_MIN_USD = 100_000;
 const TOP_FRESH_MS = 30 * 60_000;
 
 /**
- * GET /api/feed?sort=hot|new|top&limit=12&offset=0&seed=<str>&mint=<optional>
+ * GET /api/feed?sort=movers|new|top&limit=12&offset=0&seed=<str>&mint=<optional>
  *
  * Returns clips stitched to their coin. This is the single payload the vertical
  * swiper renders per page — video URL, caption, coin market state, trader balance.
@@ -84,7 +85,11 @@ const TOP_FRESH_MS = 30 * 60_000;
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  const sort = (sp.get("sort") as Sort) || "hot";
+  // "hot" is accepted as a legacy alias: a client bundle deployed before the
+  // rail was renamed to Movers may still send it, and silently falling back to a
+  // different rail would be worse than honouring the old name.
+  const rawSort = sp.get("sort");
+  const sort = ((rawSort === "hot" ? "movers" : rawSort) as Sort) || "movers";
   const limit = Math.min(24, Math.max(1, Number(sp.get("limit")) || 12));
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const mint = sp.get("mint");
@@ -105,8 +110,8 @@ export async function GET(req: NextRequest) {
   // requests, and the shuffled permutation would shift between pages — dropping
   // some clips and repeating others.
   //
-  // Hot, New and Top rank by a property of the *coin*, not the clip:
-  //   Hot — the most trades in the trailing 24 hours, so it is an activity board.
+  // Movers, New and Top rank by a property of the *coin*, not the clip:
+  //   Movers — the biggest 24h price change, so it is a gainers board.
   //   New — coins launched most recently.
   //   Top — the largest market caps.
   // `rank` (and then `id`) breaks ties so a wall of equal-scoring coins still has
@@ -120,8 +125,8 @@ export async function GET(req: NextRequest) {
       ? [{ coin: { launchedAt: "desc" as const } }, { id: "asc" as const }]
       : sort === "top"
         ? [{ coin: { marketCapSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
-        : sort === "hot"
-          ? [{ coin: { txns24h: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+        : sort === "movers"
+          ? [{ coin: { change24hPct: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
           : [{ rank: "desc" as const }, { id: "asc" as const }];
 
   // SOL/USD is needed up here because the Top floor is a USD figure and market
@@ -219,23 +224,23 @@ export async function GET(req: NextRequest) {
   }
 
   /**
-   * The where-clause, as a function of whether the Hot/Top gate is applied.
+   * The where-clause, as a function of whether the Movers/Top gate is applied.
    *
    * Building it twice is what lets the gates fall back: on a catalog the keeper
-   * has not measured yet (a fresh deploy, or movement this quiet), every coin
-   * would fail the volatility floor and Hot would render an empty wall. Rather
+   * has not measured yet (a fresh deploy, or a very quiet day), every coin would
+   * fail the "has it moved" gate and Movers would render an empty wall. Rather
    * than a blank screen, the gate is dropped and the ranked feed shows — the
-   * rail still says Hot, but with nothing volatile to rank we show the catalog
-   * instead of nothing. Still honest: every clip served is a real clip.
+   * rail still says Movers, but with nothing measured to rank we show the
+   * catalog instead of nothing. Still honest: every clip served is a real clip.
    */
   const buildWhere = (gate: boolean) => {
     const coin: Prisma.CoinWhereInput = mint ? { mint } : { ...VISIBLE_COIN };
     if (gate && !mint) {
-      // Hot is an activity board: the coins with the most trades in the last
-      // 24 hours, busiest first. A coin nobody is trading is not hot, whatever
-      // its price did. The count comes from Dexscreener, so on-curve launches —
-      // which have no pool to be counted on — read 0 and simply do not rank.
-      if (sort === "hot") coin.txns24h = { gt: 0 };
+      // Movers is a gainers board: rank by 24h price change. The gate keeps only
+      // coins that have actually moved — a stored 0 means "flat, or never
+      // measured" — so the wall is the day's movers rather than the whole
+      // catalog. Ranking desc puts the gainers at the top.
+      if (sort === "movers") coin.change24hPct = { not: 0 };
       // New is new *tokens*, not new clips — a token launched in the last hour.
       // `launchedAt` is the real launch time; `createdAt` is the fallback for
       // the rare coin pump.fun gave us no launch stamp for.
@@ -265,7 +270,7 @@ export async function GET(req: NextRequest) {
   let total = await prisma.clip.count({ where });
   // Top does NOT fall back to the ungated feed.
   //
-  // Hot and New fall back because their gates describe a ranking, and a rail
+  // Movers and New fall back because their gates describe a ranking, and a rail
   // that ranks the whole catalogue on a quiet day is still a truthful answer.
   // Top's gate is different in kind: it is a promise about the tokens ("$100k
   // plus"), and dropping it would not merely re-rank the rail, it would make it
@@ -314,9 +319,9 @@ export async function GET(req: NextRequest) {
     const pool = await prisma.clip.findMany({
       where,
       orderBy,
-      // Hot permutes only its top gainers, so the wall is a gainers board even
+      // Movers permutes only its top movers, so the wall is a gainers board even
       // after the shuffle; every other rail permutes the whole working set.
-      take: sort === "hot" ? Math.min(HOT_POOL, total) : Math.min(POOL, total),
+      take: sort === "movers" ? Math.min(MOVERS_POOL, total) : Math.min(POOL, total),
       select: { id: true },
     });
 
