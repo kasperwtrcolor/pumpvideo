@@ -332,7 +332,15 @@ export async function GET(req: NextRequest) {
     // clip that was appended.
     total = Math.max(total, ids.length);
 
-    const page = seededShuffle(ids.map((id) => ({ id })), seed).slice(offset, offset + limit);
+    // New is chronological: the order *is* the meaning ("the latest launches"),
+    // so the shuffle is skipped and the pool's launchedAt-desc order stands as
+    // the pool was already ordered. Every other rail permutes, because their
+    // order carries no signal a viewer reads — Top is a set, not a sequence.
+    const seq =
+      sort === "new"
+        ? ids.map((id) => ({ id }))
+        : seededShuffle(ids.map((id) => ({ id })), seed);
+    const page = seq.slice(offset, offset + limit);
     clips = await loadClips(page.map((p) => p.id));
   } else {
     clips = await prisma.clip.findMany({

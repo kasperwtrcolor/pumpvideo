@@ -1,9 +1,16 @@
 import type { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { withTrader, serializeCoin } from "@/lib/api";
 import { VISIBLE_COIN } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * How far back the "New" tab looks, measured on the coin's launch time. Matches
+ * the feed rail's window exactly, so the two "New" surfaces cannot disagree.
+ */
+const NEW_WINDOW_MS = 60 * 60_000;
 
 /**
  * GET /api/coins?sort=hot|new|top|clips&limit=24&offset=0&q=dog&graduated=0
@@ -17,27 +24,49 @@ export async function GET(req: NextRequest) {
   const q = (sp.get("q") || "").trim();
   const graduatedOnly = sp.get("graduated") === "1";
 
-  const orderBy =
+  // Every ordering carries `id` as a final tiebreaker, so a coin sitting on the
+  // same rank/timestamp cannot shuffle between pages and be dropped or repeated.
+  //
+  // New sorts on `launchedAt` (the real launch), NOT `createdAt` (when we
+  // ingested the row). Ordering by ingest time with no time window is how the
+  // tab filled with day-old tokens: a coin pulled into the catalogue hours after
+  // it launched looked "new" purely because we had just added it.
+  const orderBy: Prisma.CoinOrderByWithRelationInput[] =
     sort === "new"
-      ? { createdAt: "desc" as const }
+      ? [{ launchedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "asc" }]
       : sort === "top"
-        ? { marketCapSol: "desc" as const }
+        ? [{ marketCapSol: "desc" }, { id: "asc" }]
         : sort === "clips"
-          ? { clips: { _count: "desc" as const } }
-          : { marketCapSol: "desc" as const };
+          ? [{ clips: { _count: "desc" } }, { id: "asc" }]
+          : [{ marketCapSol: "desc" }, { id: "asc" }];
 
-  const where = {
+  const filters: Prisma.CoinWhereInput[] = [];
+  if (graduatedOnly) filters.push({ complete: true });
+  if (sort === "new") {
+    // The "New" tab is a window on launch time — a token launched in the last
+    // hour — mirroring the feed rail. `launchedAt` is the real launch; `createdAt`
+    // is the fallback for the rare coin pump.fun gave us no launch stamp for.
+    const cut = new Date(Date.now() - NEW_WINDOW_MS);
+    filters.push({
+      OR: [
+        { launchedAt: { gte: cut } },
+        { launchedAt: null, createdAt: { gte: cut } },
+      ],
+    });
+  }
+  if (q) {
+    filters.push({
+      OR: [
+        { name: { contains: q } },
+        { symbol: { contains: q } },
+        { mint: { contains: q } },
+      ],
+    });
+  }
+
+  const where: Prisma.CoinWhereInput = {
     ...VISIBLE_COIN,
-    ...(graduatedOnly ? { complete: true } : {}),
-    ...(q
-      ? {
-          OR: [
-            { name: { contains: q } },
-            { symbol: { contains: q } },
-            { mint: { contains: q } },
-          ],
-        }
-      : {}),
+    ...(filters.length ? { AND: filters } : {}),
   };
 
   const [coins, total] = await Promise.all([
