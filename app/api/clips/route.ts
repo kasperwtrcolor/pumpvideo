@@ -145,6 +145,14 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // A real clip supersedes the placeholder art card for this coin. The art card
+  // is the default front door for a token nobody has clipped yet; once a genuine
+  // video exists it is strictly better, so drop the placeholder. Ingest recreates
+  // it automatically if the coin later ends up with zero clips again.
+  await prisma.clip.deleteMany({
+    where: { coinId: coin.id, source: "INGEST", videoUrl: null },
+  });
+
   const clip = await prisma.clip.create({
     data: {
       coinId: coin.id,
@@ -167,8 +175,8 @@ export async function POST(req: NextRequest) {
         launchedAt: coin.launchedAt,
         complete: coin.complete,
       }),
-      // No wallet means no creator payout — the 1% falls through to the treasury
-      // rather than being silently dropped.
+      // No wallet means no creator payout, and the 1% creator leg is not
+      // charged at all — the buyer pays only the 2% app fee.
       creatorWallet: trader.walletAddress,
       uploadedById: trader.id,
     },

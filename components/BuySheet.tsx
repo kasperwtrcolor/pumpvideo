@@ -47,9 +47,11 @@ function b64ToBytes(b64: string): Uint8Array {
  * there is no wallet there is no trade, which is why a logged-out viewer gets a
  * prompt instead of a button.
  *
- * A buy also carries the in-app fee: 1% to the clip's creator and 2% to the
- * treasury vault, appended to the swap as SOL transfers so they settle with it
- * or not at all. The review step shows exactly what they cost.
+ * A buy also carries the in-app fee: 2% to the treasury vault, plus 1% to the
+ * clip's creator when the clip the buyer came through has one (an unclaimed
+ * clip has none, so the buy is 2% only). Appended to the swap as SOL transfers
+ * so they settle with it or not at all. The review step shows exactly what they
+ * cost.
  */
 export function BuySheet({
   coin,
@@ -334,7 +336,7 @@ export function BuySheet({
                     />
                   )}
                   <Row
-                    label={`treasury${fees.creatorSol === 0 ? " (incl. creator share) · 3%" : " · 2%"}`}
+                    label="treasury · 2%"
                     value={`${fmtSol(fees.treasurySol)} SOL`}
                   />
                   <div className="border-t border-line pt-1.5">
@@ -441,7 +443,7 @@ export function BuySheet({
               />
               <Row label="quote" value="fetched from Jupiter on next step" />
               <Row label="slippage tolerance" value="5%" />
-              {side === "BUY" && <Row label="in-app fee" value="+3% (1% creator · 2% treasury)" />}
+              {side === "BUY" && <Row label="in-app fee" value="+2% app (+1% to the clip's creator)" />}
             </div>
 
             <button

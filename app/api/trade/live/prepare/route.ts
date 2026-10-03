@@ -39,7 +39,7 @@ const Body = z.discriminatedUnion("side", [
     solAmount: z.number().positive().max(50),
     slippageBps: z.number().int().min(10).max(3000).default(500),
     /// Optional: the clip the buyer tapped through, used to route the 1% creator
-    /// fee. Without it the creator leg falls through to the treasury.
+    /// fee. Without it — or when the clip has no creator — the 1% is not charged.
     clipId: z.string().min(1).max(64).optional(),
   }),
   z.object({
@@ -187,8 +187,8 @@ export async function POST(req: NextRequest) {
   } = { treasurySol: 0, creatorSol: 0, creatorWallet: null, totalSol: 0 };
 
   if (parsed.side === "BUY") {
-    // The clip the buyer tapped through decides who earns the 1%. A seeded clip
-    // (or no clip) has no creator, so that 1% falls through to the treasury.
+    // The clip the buyer tapped through decides who earns the 1%. A creator-less
+    // (unclaimed) clip or no clip has no creator, so the 1% is not charged.
     let creatorWallet: string | null = null;
     if (parsed.clipId) {
       const clip = await prisma.clip.findUnique({

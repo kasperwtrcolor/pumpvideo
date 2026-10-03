@@ -86,6 +86,14 @@ async function main() {
   check("creator leg is 1% of the buy", split.creator === 1_000_000n, `${split.creator} lamports`);
   check("treasury leg is 2% of the buy", split.treasury === 2_000_000n, `${split.treasury} lamports`);
 
+  // An unclaimed/ingest clip has no creator wallet: the 1% creator leg is not
+  // charged at all (it does not fall through to the treasury), so the buyer pays
+  // only the 2% app fee.
+  const noCreator = computeFeeSplit(100_000_000n, null);
+  check("no creator ⇒ no creator leg", noCreator.creator === 0n, `${noCreator.creator} lamports`);
+  check("no creator ⇒ treasury is still 2%", noCreator.treasury === 2_000_000n, `${noCreator.treasury} lamports`);
+  check("no creator ⇒ buyer pays 2% total", noCreator.total === 2_000_000n, `${noCreator.total} lamports`);
+
   const conn = new Connection(SOLANA_RPC, "confirmed");
   const withFees = await attachFees({
     transactionBase64: swap.swapTransaction,

@@ -144,10 +144,12 @@ export default function TermsPage() {
         <p>
           Live trades pay network fees charged by the Solana blockchain, plus any fee charged by the
           third-party liquidity venue and swap router used to fill your trade. In addition, a
-          service fee of 3% of the buy amount is charged on in-app buys: 1% to the creator of the
-          clip you bought through (or to the treasury where there is no creator) and 2% to the
-          platform treasury. This fee is taken in SOL as part of the same transaction as the swap,
-          and the exact amount is shown to you before you sign. Selling does not carry a service fee.
+          service fee of 2% of the buy amount is charged on in-app buys, paid to the platform
+          treasury. Separately, when you buy through a clip uploaded by another user, 1% of the
+          buy amount is paid to that clip&apos;s creator (an unclaimed clip, or buying directly on a
+          token with no creator clip, carries only the 2% fee). These fees are taken in SOL as part
+          of the same transaction as the swap, and the exact amount is shown to you before you
+          sign. Selling does not carry a service fee.
         </p>
       </Section>
 

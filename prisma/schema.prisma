@@ -133,8 +133,9 @@ model Clip {
   caption  String?
   author   String? @default("unclaimed")
 
-  /// Solana wallet paid the 1% creator fee. Null for seeded clips (fee then
-  /// falls through to the treasury, so a buy is never silently free).
+  /// Solana wallet that earns the 1% creator fee. Null for unclaimed/ingest
+  /// clips, in which case the 1% creator leg is not charged at all — the buyer
+  /// pays only the 2% app fee.
   creatorWallet String?
   /// Trader row that uploaded this clip (null for seeded clips).
   uploadedById  String?

@@ -1,11 +1,12 @@
 /**
  * In-app trading fees.
  *
- * A buy made through Pemp pays two fees, both in SOL, both taken on the
- * *buy* only:
+ * A buy made through Pemp pays fees in SOL, taken on the *buy* only:
  *
- *   - 1% to the clip's creator (the wallet that uploaded the video)
- *   - 2% to the app treasury vault
+ *   - 2% to the app treasury vault (always)
+ *   - 1% to the clip's creator (the wallet that uploaded the video) — charged
+ *     only when the clip the buyer came through has one. An unclaimed/ingest
+ *     clip has no creator, so a buy through it costs 2% only.
  *
  * Jupiter's own platform-fee feature can't express this: it pays a single
  * referral account and takes its cut in the *output token*. So instead we take
@@ -13,9 +14,11 @@
  * SystemProgram transfers, and recompile. One transaction, one signature,
  * atomic — if the swap reverts the fees never move, and vice versa.
  *
- * The fee payer is the buyer, so the cost of a buy is `amount + 3%`. That makes
- * our in-app price 3% worse than swapping the same coin directly; inherent to
- * taking a cut, and disclosed in the trade sheet.
+ * The fee payer is the buyer, so the cost of a buy is `amount + 2%` on a
+ * creator-less clip (unclaimed/ingest), or `amount + 3%` through a creator's
+ * clip (2% app + 1% creator). That makes our in-app price up to 3% worse than
+ * swapping the same coin directly; inherent to taking a cut, and disclosed in
+ * the trade sheet.
  */
 import {
   AddressLookupTableAccount,
@@ -72,15 +75,16 @@ export function computeFeeSplit(solInLamports: bigint, creatorWallet: string | n
         creatorOut = key.toBase58();
       }
     } catch {
-      // An unparseable creator wallet is treated as "no creator" — the fee falls
-      // through to the treasury rather than blocking the trade.
+      // An unparseable creator wallet is treated as "no creator" — no creator
+      // leg is charged, rather than blocking the trade.
       creatorOut = null;
     }
   }
 
-  // With no creator, the 1% still gets charged — it just goes to the treasury,
-  // so a buy is never silently cheaper through a creator-less clip.
-  const treasuryFinal = creatorOut ? treasury : treasury + feeLamports(solInLamports, CREATOR_BPS);
+  // No creator ⇒ no creator leg. An unclaimed (creator-less) clip charges only
+  // the 2% app fee; the 1% is earned solely by a wallet that actually posted the
+  // clip the buyer came through.
+  const treasuryFinal = treasury;
 
   return {
     treasury: treasuryFinal,
