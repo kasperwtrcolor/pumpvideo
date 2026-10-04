@@ -1140,7 +1140,7 @@ function ClipPanel({
           )}
         </div>
 
-        <p className="line-clamp-2 text-[15px] font-medium text-white/95 text-glow">
+        <p className="line-clamp-2 text-[17px] font-semibold text-white/95 text-glow">
           {item.caption ?? `$${sym(coin.symbol)}`}
         </p>
 
@@ -1175,7 +1175,7 @@ function ClipPanel({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-black tracking-wide text-white">
+          <span className="rounded-md bg-black/55 px-2.5 py-1 text-[13px] font-black tracking-wide text-white">
             ${sym(coin.symbol)}
           </span>
           <span
@@ -1204,7 +1204,7 @@ function ClipPanel({
               5m {fmtPct(change5m)}
             </span>
           )}
-          <span className="rounded-md bg-black/55 px-2 py-1 text-[11px] font-semibold text-white/85 tabular-nums">
+          <span className="rounded-md bg-black/55 px-2 py-1 text-[12px] font-bold text-white/90 tabular-nums">
             MC {fmtUsd(marketCap * solUsd)}
           </span>
           {/* How old the token is — launch time when pump.fun gave us one, else

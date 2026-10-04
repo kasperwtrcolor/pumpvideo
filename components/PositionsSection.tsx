@@ -64,37 +64,59 @@ export function PositionsSection() {
         positions {data ? `(${data.positions.length})` : ""}
       </h2>
       <div className="mt-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel">
-        {data?.positions.map((p) => (
-          <div key={p.mint} className="flex items-center gap-3 px-3 py-3">
-            {p.imageUrl ? (
-              <CoinAvatar src={p.imageUrl} symbol={p.symbol} className="h-10 w-10 shrink-0 rounded-full" />
-            ) : null}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-bold">
-                ${sym(p.symbol)}
-                <span className="ml-1.5 text-[11px] font-normal text-muted">{fmtSol(p.tokens)}</span>
-              </div>
-              <div className="text-[10px] text-muted tabular-nums">
-                cost {fmtSol(p.costSol)} SOL · value {fmtSol(p.valueSol)} SOL
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              <div className={`text-sm font-bold tabular-nums ${p.pnlSol >= 0 ? "text-up" : "text-down"}`}>
-                {fmtPct(p.pnlPct)}
-              </div>
-              <div className="text-[10px] text-muted tabular-nums">
-                {p.pnlSol >= 0 ? "+" : ""}
-                {fmtSol(p.pnlSol)} SOL
-              </div>
-            </div>
-            <button
-              onClick={() => setSellMint(p.mint)}
-              className="shrink-0 rounded-lg border border-line bg-panel2 px-3 py-2 text-[11px] font-bold text-down hover:border-down"
+        {data?.positions.map((p) => {
+          const up = p.pnlSol >= 0;
+          return (
+            // Big-type row, matching the coin index's style (components/CoinRow
+            // is not reused here because a holding headlines its *unrealised
+            // move*, not a market cap). The ticker leads, the move is the
+            // headline number, and the row is washed by direction — a book is
+            // scanned for "what is up and what is down" before it is read.
+            <div
+              key={p.mint}
+              className={`flex items-center gap-3.5 px-3.5 py-3.5 ${
+                up ? "bg-up/[0.07]" : "bg-down/[0.07]"
+              }`}
             >
-              sell
-            </button>
-          </div>
-        ))}
+              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-panel2">
+                <CoinAvatar src={p.imageUrl} symbol={p.symbol} className="h-full w-full" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[18px] font-black leading-tight">${sym(p.symbol)}</div>
+                <div className="mt-1 flex items-center gap-1.5 text-[13px] text-muted tabular-nums">
+                  <span className="font-bold text-ink/70">{fmtSol(p.tokens)}</span>
+                  <span aria-hidden className="opacity-40">
+                    ·
+                  </span>
+                  <span>cost {fmtSol(p.costSol)} SOL</span>
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div
+                  className={`text-[20px] font-black leading-none tabular-nums ${
+                    up ? "text-up" : "text-down"
+                  }`}
+                >
+                  {fmtPct(p.pnlPct)}
+                </div>
+                <div
+                  className={`mt-1.5 inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums ${
+                    up ? "bg-up/15 text-up" : "bg-down/15 text-down"
+                  }`}
+                >
+                  {up ? "+" : ""}
+                  {fmtSol(p.pnlSol)} SOL
+                </div>
+              </div>
+              <button
+                onClick={() => setSellMint(p.mint)}
+                className="shrink-0 rounded-lg border border-line bg-panel2 px-3 py-2 text-[11px] font-bold text-down hover:border-down"
+              >
+                sell
+              </button>
+            </div>
+          );
+        })}
 
         {data && data.positions.length === 0 && (
           <EmptyState

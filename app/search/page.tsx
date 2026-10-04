@@ -8,10 +8,8 @@ import { FollowButton, TokenFollowButton } from "@/components/FollowButton";
 import { SearchIcon } from "@/components/Icons";
 import { EmptyState } from "@/components/Mascots";
 import { CultureIcon } from "@/components/CultureIcon";
-import { CoinAvatar } from "@/components/CoinAvatar";
+import { CoinRow } from "@/components/CoinRow";
 import { useTrader } from "@/components/TraderProvider";
-import { artUrl } from "@/lib/art-url";
-import { fmtPct, fmtPrice, fmtUsd, sym } from "@/lib/format";
 
 /**
  * One search box for both people and tokens.
@@ -210,24 +208,20 @@ function SearchInner() {
 
 function TokenRow({ t }: { t: TokenHitDTO }) {
   const { solUsd } = useTrader();
-  const up = t.change24hPct >= 0;
+  // The index's own row style (components/CoinRow), so a token found by search
+  // looks exactly like the same token on the Coins tab. Search hits carry no
+  // launch time, so the secondary line is just the ticker.
   return (
-    <li className="flex items-center gap-3 px-4 py-2.5">
-      <Link href={`/t/${t.mint}`} className="flex min-w-0 flex-1 items-center gap-3">
-        <CoinAvatar src={t.imageUrl} symbol={t.symbol} className="h-10 w-10 rounded-full border border-line" />
-        <span className="min-w-0">
-          <span className="block truncate text-[13px] font-bold">
-            ${sym(t.symbol)}
-            <span className="ml-1.5 font-medium text-muted">{t.name}</span>
-          </span>
-          <span className="flex items-center gap-2 text-[11px] text-muted tabular-nums">
-            <span>{fmtPrice(t.priceSol)} SOL</span>
-            <span className={up ? "text-up" : "text-down"}>{fmtPct(t.change24hPct)}</span>
-            <span>MC {fmtUsd(t.marketCapSol * solUsd)}</span>
-          </span>
-        </span>
-      </Link>
-      <TokenFollowButton mint={t.mint} initialFollowing={t.isFollowing} />
-    </li>
+    <CoinRow
+      href={`/t/${t.mint}`}
+      name={t.name}
+      symbol={t.symbol}
+      imageUrl={t.imageUrl}
+      marketCapSol={t.marketCapSol}
+      change24hPct={t.change24hPct}
+      complete={t.complete}
+      solUsd={solUsd}
+      trailing={<TokenFollowButton mint={t.mint} initialFollowing={t.isFollowing} />}
+    />
   );
 }
