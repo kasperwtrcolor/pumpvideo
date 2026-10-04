@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "@/components/TraderProvider";
-import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
+import { fmtCount, fmtPct, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
 type Sort = "top" | "movers" | "new" | "trending" | "clips";
@@ -160,73 +160,74 @@ export default function CoinsPage() {
         />
 
         <div className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel">
-          {rows.map((c) => (
-            // A whole row is the target, and it goes to the token's clip wall —
-            // watching is the reason you tapped a coin, so the first screen shows
-            // its clips rather than a buy dialog. Buying lives on each clip.
-            <Link
-              key={c.mint}
-              href={`/t/${c.mint}`}
-              className="flex w-full items-center gap-3 px-3 py-3 text-left transition hover:bg-panel2"
-            >
-              <div className="relative h-14 w-11 shrink-0 overflow-hidden rounded-lg bg-panel2">
-                <CoinAvatar
-                  src={c.imageUrl}
-                  symbol={c.symbol}
-                  className="h-full w-full"
-                />
-                {c.clip && (
-                  <video
-                    src={c.clip}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    className="absolute inset-0 h-full w-full object-cover"
+          {rows.map((c) => {
+            const up = c.change24hPct >= 0;
+            return (
+              // A whole row is the target, and it goes to the token's clip wall —
+              // watching is the reason you tapped a coin, so the first screen shows
+              // its clips rather than a buy dialog. Buying lives on each clip.
+              //
+              // Big-type row: the name leads; the market cap is the headline on the
+              // right with its 24h move as a tinted chip beneath it; the secondary
+              // line is just ticker + age. The row itself is washed green or red by
+              // direction, so the list reads by colour before you parse a number.
+              <Link
+                key={c.mint}
+                href={`/t/${c.mint}`}
+                className={`flex w-full items-center gap-3.5 px-3.5 py-3.5 text-left transition hover:bg-panel2 ${
+                  up ? "bg-up/[0.07]" : "bg-down/[0.07]"
+                }`}
+              >
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-panel2">
+                  <CoinAvatar
+                    src={c.imageUrl}
+                    symbol={c.symbol}
+                    className="h-full w-full"
                   />
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-[15px] font-bold">{c.name}</span>
-                  <span className="text-[12px] text-muted">${sym(c.symbol)}</span>
-                  {c.complete && (
-                    <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-bold text-accent">
-                      GRAD
-                    </span>
+                  {c.clip && (
+                    <video
+                      src={c.clip}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
                   )}
                 </div>
-                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
-                  <span>{c.clipCount} clip{c.clipCount === 1 ? "" : "s"}</span>
-                  <span>·</span>
-                  <span>{timeAgo(c.launchedAt)} ago</span>
-                  <span>·</span>
-                  <span>{fmtCount(c.holders)} holders</span>
-                </div>
-              </div>
 
-              <div className="shrink-0 text-right">
-                {/* Market cap, in USD — the headline figure. It used to be the
-                    SOL-denominated cap, which read as a token "volume"; USD is
-                    what a market cap means to a reader, and it matches the feed
-                    card. Price stays in SOL because that is what you trade in. */}
-                <div className="text-[15px] font-bold tabular-nums">
-                  <span className="mr-1 text-[10px] font-semibold text-muted">MC</span>
-                  {fmtUsd(c.marketCapSol * solUsd)}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-[18px] font-black leading-tight">{c.name}</span>
+                    {c.complete && (
+                      <span className="shrink-0 rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-black text-accent">
+                        GRAD
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5 text-[13px] text-muted">
+                    <span className="font-bold text-ink/70">${sym(c.symbol)}</span>
+                    <span aria-hidden className="opacity-40">·</span>
+                    <span className="tabular-nums">{timeAgo(c.launchedAt)}</span>
+                  </div>
                 </div>
-                <div className="text-[11px] text-muted tabular-nums">
-                  {fmtPrice(c.priceSol)} SOL
+
+                <div className="shrink-0 text-right">
+                  {/* Market cap, in USD — the headline number for this row. */}
+                  <div className="text-[20px] font-black leading-none tabular-nums">
+                    {fmtUsd(c.marketCapSol * solUsd)}
+                  </div>
+                  <div
+                    className={`mt-1.5 inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums ${
+                      up ? "bg-up/15 text-up" : "bg-down/15 text-down"
+                    }`}
+                  >
+                    <span aria-hidden>{up ? "↑" : "↓"}</span>
+                    <span>{fmtPct(Math.abs(c.change24hPct))}</span>
+                  </div>
                 </div>
-                <div
-                  className={`text-[11px] font-bold tabular-nums ${
-                    c.change24hPct >= 0 ? "text-up" : "text-down"
-                  }`}
-                >
-                  {fmtPct(c.change24hPct)}
-                </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
 
           {!loading && rows.length === 0 && (
             <div className="px-3 py-10 text-center text-xs text-muted">
