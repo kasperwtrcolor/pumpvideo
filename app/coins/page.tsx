@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "@/components/TraderProvider";
-import { fmtCount, fmtPct, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
+import { fmtCount, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
 type Sort = "top" | "movers" | "new" | "trending" | "clips";
@@ -222,7 +222,7 @@ export default function CoinsPage() {
                     }`}
                   >
                     <span aria-hidden>{up ? "↑" : "↓"}</span>
-                    <span>{fmtPct(Math.abs(c.change24hPct))}</span>
+                    <span>{Math.abs(c.change24hPct).toFixed(1)}%</span>
                   </div>
                 </div>
               </Link>
