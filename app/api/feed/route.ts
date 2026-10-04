@@ -7,6 +7,7 @@ import { readTrader, resolveTrader } from "@/lib/session";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 import { solUsd } from "@/lib/sol-price";
 import { seededShuffle } from "@/lib/shuffle";
+import { trendingSeed } from "@/lib/trending-order";
 
 export const dynamic = "force-dynamic";
 
@@ -330,14 +331,21 @@ export async function GET(req: NextRequest) {
     // clip that was appended.
     total = Math.max(total, ids.length);
 
-    // New, Movers, Trending and Top are ranked rails: the order *is* the meaning
-    // ("the latest launches", "the biggest movers", "what is trending", "the
-    // biggest caps"), so the shuffle is skipped and the pool's own order stands.
-    // Every other rail permutes, because its order carries no signal a viewer reads.
-    const ranked = sort === "new" || sort === "movers" || sort === "trending" || sort === "top";
+    // New, Movers and Top are ranked rails: the order *is* the meaning ("the
+    // latest launches", "the biggest movers", "the biggest caps"), so the
+    // shuffle is skipped and the pool's own order stands.
+    //
+    // Trending is the exception. Its *members* come from the Dexscreener board,
+    // but the board's own order is a boost leaderboard — it reads top-to-bottom
+    // as "who paid the most", so ranking by it turns the rail into an advert.
+    // Trending is therefore permuted too, on the hour bucket rather than the
+    // visitor's session seed: one order for everyone, stable enough to page
+    // through, rotating once an hour (see lib/trending-order.ts).
+    const ranked = sort === "new" || sort === "movers" || sort === "top";
+    const shuffleSeed = sort === "trending" ? trendingSeed() : seed;
     const seq = ranked
       ? ids.map((id) => ({ id }))
-      : seededShuffle(ids.map((id) => ({ id })), seed);
+      : seededShuffle(ids.map((id) => ({ id })), shuffleSeed);
     const page = seq.slice(offset, offset + limit);
     clips = await loadClips(page.map((p) => p.id));
   } else {

@@ -3,8 +3,19 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { withTrader, serializeCoin } from "@/lib/api";
 import { VISIBLE_COIN } from "@/lib/visibility";
+import { seededShuffle } from "@/lib/shuffle";
+import { trendingSeed } from "@/lib/trending-order";
 
 export const dynamic = "force-dynamic";
+
+/** A coin row with its ready-clip count, the shape both branches below produce. */
+type CoinWithClips = Prisma.CoinGetPayload<{
+  include: { _count: { select: { clips: true } } };
+}>;
+
+const CLIP_COUNT_INCLUDE = {
+  _count: { select: { clips: { where: { ready: true } } } },
+};
 
 /**
  * How far back the "New" tab looks, measured on the coin's launch time. Matches
@@ -99,16 +110,36 @@ export async function GET(req: NextRequest) {
     ...(filters.length ? { AND: filters } : {}),
   };
 
-  const [coins, total] = await Promise.all([
-    prisma.coin.findMany({
-      where,
-      orderBy,
-      take: limit,
-      skip: offset,
-      include: { _count: { select: { clips: { where: { ready: true } } } } },
-    }),
-    prisma.coin.count({ where }),
-  ]);
+  // The include the rows carry, shared by both branches below.
+  const include = CLIP_COUNT_INCLUDE;
+
+  let coins: CoinWithClips[];
+  let total: number;
+
+  if (sort === "trending") {
+    // Trending is permuted on the hour bucket (see lib/trending-order.ts). The
+    // board's own order is a boost leaderboard, so ranking by it turns the tab
+    // into an advert that reads top-to-bottom as "who paid the most". The set is
+    // small — a board of a few dozen mints — so it is read whole and permuted in
+    // memory, then the page is sliced out. Doing it in SQL cannot work: the
+    // permutation has to be byte-identical across pages, and an ORDER BY cannot
+    // express a seeded shuffle.
+    const all = await prisma.coin.findMany({ where, orderBy, include });
+    const shuffled = seededShuffle(all, trendingSeed());
+    total = shuffled.length;
+    coins = shuffled.slice(offset, offset + limit);
+  } else {
+    [coins, total] = await Promise.all([
+      prisma.coin.findMany({
+        where,
+        orderBy,
+        take: limit,
+        skip: offset,
+        include,
+      }),
+      prisma.coin.count({ where }),
+    ]);
+  }
 
   return withTrader({
     items: coins.map((c) => ({
