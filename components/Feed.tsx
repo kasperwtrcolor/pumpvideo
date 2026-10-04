@@ -1028,9 +1028,17 @@ function ClipPanel({
           Bottom-anchored and compact on purpose: with five actions plus the
           header icons above it, the column has to clear the header on a short
           viewport (a landscape phone, or a small window). Sizes and gaps are
-          kept tight so the top of the rail stays below the chrome. */}
+          kept tight so the top of the rail stays below the chrome.
+
+          `z-40` is load-bearing, not decoration. The caption block below is also
+          `absolute inset-x-0 bottom-0` at `z-30`, so it spans the full card
+          width and paints over this rail's lower buttons whenever it comes later
+          in the DOM — which is exactly what it does. The rail is the control
+          layer and must sit above it, or "save" and "share" (the two bottom
+          buttons) are covered by an invisible box and silently stop responding.
+          Still below the sheets (z-70/75) and the chrome (z-50). */}
       <div
-        className={`absolute bottom-28 right-3 z-30 flex flex-col items-center gap-3 ${
+        className={`absolute bottom-28 right-3 z-40 flex flex-col items-center gap-3 ${
           bounce ? "clip-bounce" : ""
         }`}
         style={bounce ? { animationDelay: "70ms" } : undefined}
