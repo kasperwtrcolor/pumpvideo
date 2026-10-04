@@ -25,13 +25,16 @@ set -a; source "$ENV_FILE"; set +a
 
 # Bounded so a hung network call can't stack up overlapping cron runs.
 #
-# `--limit 200` is the coverage knob, and it has to exceed the number of coins
-# that can plausibly clear the Top rail's $100k floor. Top trusts a coin's stored
-# market cap only if the keeper measured it recently (see app/api/feed/route.ts),
-# so any coin above the floor that the keeper does not walk each tick would drift
-# out of the freshness window and silently fall off Top even though it is alive.
-# The floor sits around 170 coins on a typical day, so 200 covers them with
-# headroom while keeping the Dexscreener fan-out to single-digit batches.
+# `--limit 600` is the coverage knob, and it must exceed the WHOLE catalogue —
+# not just its head. Top trusts a coin's stored market cap only if the keeper
+# measured it recently (see lib/freshness.ts), so any coin the walk skips drifts
+# out of the freshness window and silently falls off Top while it is still alive.
+# That is not hypothetical: at `--limit 200` against a 342-coin catalogue, 142
+# coins were never walked at all, and a live-but-unwalked coin is indistinguishable
+# from a dead one to any freshness rule. 600 covers today's catalogue with room to
+# grow. Raising it is cheap: graduated coins ride Dexscreener in batches of 30,
+# and the on-curve pump.fun sweep pages a fixed number of pages no matter how many
+# mints it is hunting for.
 #
 # `--ingest 8` also pulls the newest 8 launched tokens each tick and runs them
 # through the filters in lib/ingest.ts (min market cap, must have art, not
@@ -68,7 +71,7 @@ set -a; source "$ENV_FILE"; set +a
 TREND=0
 if [ "$((10#$(date +%M)))" -lt 5 ]; then TREND=40; fi
 
-if ! timeout 300 npm run sync --silent -- --limit 200 --ingest 8 --trending "$TREND" --reconcile 50 --holders 50 --dust 500; then
+if ! timeout 300 npm run sync --silent -- --limit 600 --ingest 8 --trending "$TREND" --reconcile 50 --holders 50 --dust 500; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi

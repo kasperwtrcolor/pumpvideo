@@ -8,6 +8,7 @@ import { SOLANA_RPC } from "@/lib/pumpfun";
 import { solUsd } from "@/lib/sol-price";
 import { seededShuffle } from "@/lib/shuffle";
 import { trendingSeed } from "@/lib/trending-order";
+import { mcFreshCutoff } from "@/lib/freshness";
 
 export const dynamic = "force-dynamic";
 
@@ -248,6 +249,11 @@ export async function GET(req: NextRequest) {
         // no-fallback note below).
         coin.id = { in: trendingCoinIds ?? [] };
       }
+      // Top is a market-cap leaderboard, so it may only rank on a cap the keeper
+      // measured recently. A coin whose pool vanished can never be re-measured,
+      // so its last cap is frozen forever — and ranking on it parked a dead coin
+      // at #1. See lib/freshness.ts.
+      if (sort === "top") coin.lastSyncedAt = { gte: mcFreshCutoff() };
     }
     return {
       ready: true,
@@ -265,14 +271,20 @@ export async function GET(req: NextRequest) {
 
   let where = buildWhere(true);
   let total = await prisma.clip.count({ where });
-  // Trending does NOT fall back to the ungated feed.
+  // Trending and Top do NOT fall back to the ungated feed.
   //
   // Movers and New fall back because their gates describe a ranking, and a rail
   // that ranks the whole catalogue on a quiet day is still a truthful answer.
+  //
   // Trending's gate is different in kind: it is a claim that these coins are
   // being traded right now, so dropping it would make the heading a lie — a dead
-  // coin shown under "Trending". When nothing qualifies, Trending renders empty.
-  if (total === 0 && !mint && sort !== "trending") {
+  // coin shown under "Trending".
+  //
+  // Top's gate is freshness, for the same reason: it claims "the biggest caps we
+  // can stand behind". Dropping the gate to fill an empty board would put the
+  // frozen cap of a dead coin straight back at #1 — the exact bug it exists to
+  // prevent. An empty Top is the honest answer.
+  if (total === 0 && !mint && sort !== "trending" && sort !== "top") {
     where = buildWhere(false);
     total = await prisma.clip.count({ where });
   }

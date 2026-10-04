@@ -397,6 +397,111 @@ export async function hideDust(
 }
 
 /**
+ * How long the keeper may go without re-measuring a coin before its market is
+ * treated as gone.
+ *
+ * The keeper writes `lastSyncedAt` only on a *successful* measurement, so a coin
+ * can only be this stale if every source has stopped answering for it — its pool
+ * was drained, its pair delisted, or it fell out of every ranking. Three days is
+ * deliberately far longer than the gate that only governs *ranking*
+ * (lib/freshness.ts, six hours): that gate merely declines to rank on a number
+ * we cannot stand behind, while this hides the row outright and so wants much
+ * more evidence.
+ *
+ * This is the missing half of the retention story. `planRetention` refuses to
+ * touch a graduated coin whose pump.fun ranking has gone (it cannot tell a dead
+ * one from an unranked live one), and it never even looks at a coin whose stored
+ * volume is non-zero — so a graduated coin that died after a burst of trading
+ * kept a frozen volume that sheltered it from every sweep, forever.
+ */
+export const DEAD_MARKET_MS = 3 * 86_400_000;
+
+/** A coin measured within this window means the keeper is alive and working. */
+const KEEPER_LIVENESS_MS = 15 * 60_000;
+
+/** How many coins must be that fresh before we trust staleness as a verdict. */
+const KEEPER_LIVENESS_MIN = 10;
+
+export type DeadMarketResult = {
+  candidates: number;
+  hidden: number;
+  /** Set when the guard refused; the reason, for the log. */
+  refused: string | null;
+};
+
+/**
+ * Hide coins whose market has been unmeasurable for days.
+ *
+ * Reversible (`hiddenAt`, which VISIBLE_COIN filters on, and which the daily
+ * retention run's `restoreRevived` clears the moment a token is measurable
+ * again), guarded by the same dependency set as every other sweep, and refused
+ * outright when the keeper itself looks down.
+ */
+export async function hideDeadMarkets(
+  opts: { limit?: number; apply?: boolean } = {},
+): Promise<DeadMarketResult> {
+  const apply = opts.apply !== false;
+  const now = Date.now();
+
+  // Liveness guard. "The keeper has not managed to measure this coin" is only a
+  // verdict about the *coin* while the keeper is working. A dead cron or a
+  // Dexscreener outage makes every coin look stale at once, and acting on that
+  // would hide the entire catalogue in a single pass — so refuse unless a real
+  // number of coins have been measured very recently.
+  const recentlyMeasured = await prisma.coin.count({
+    where: {
+      hiddenAt: null,
+      isBanned: false,
+      lastSyncedAt: { gte: new Date(now - KEEPER_LIVENESS_MS) },
+    },
+  });
+  if (recentlyMeasured < KEEPER_LIVENESS_MIN) {
+    return {
+      candidates: 0,
+      hidden: 0,
+      refused: `keeper looks down — only ${recentlyMeasured} coin(s) measured in the last ${
+        KEEPER_LIVENESS_MS / 60_000
+      }m`,
+    };
+  }
+
+  const rows = await prisma.coin.findMany({
+    where: {
+      hiddenAt: null,
+      isBanned: false,
+      lastSyncedAt: { lt: new Date(now - DEAD_MARKET_MS) },
+      // The same dependency guards every other sweep uses: a coin with a
+      // user-uploaded clip, an open position or a follower is never touched.
+      clips: { none: { uploadedById: { not: null } } },
+      positions: { none: {} },
+      followers: { none: {} },
+    },
+    select: { id: true, mint: true },
+    orderBy: { lastSyncedAt: "asc" },
+    take: opts.limit ?? DEFAULT_LIMIT,
+  });
+  if (rows.length === 0) return { candidates: 0, hidden: 0, refused: null };
+
+  const traded = new Set(
+    (
+      await prisma.trade.findMany({
+        where: { coinMint: { in: rows.map((r) => r.mint) } },
+        select: { coinMint: true },
+        distinct: ["coinMint"],
+      })
+    ).map((t) => t.coinMint),
+  );
+  const ids = rows.filter((r) => !traded.has(r.mint)).map((r) => r.id);
+  if (!apply || ids.length === 0) return { candidates: ids.length, hidden: 0, refused: null };
+
+  const res = await prisma.coin.updateMany({
+    where: { id: { in: ids } },
+    data: { hiddenAt: new Date() },
+  });
+  return { candidates: ids.length, hidden: res.count, refused: null };
+}
+
+/**
  * Un-hide coins that came back to life.
  *
  * Hiding has to be reversible or it is just a slow delete with extra steps: a

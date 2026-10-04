@@ -5,6 +5,7 @@ import { withTrader, serializeCoin } from "@/lib/api";
 import { VISIBLE_COIN } from "@/lib/visibility";
 import { seededShuffle } from "@/lib/shuffle";
 import { trendingSeed } from "@/lib/trending-order";
+import { mcFreshCutoff } from "@/lib/freshness";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,14 @@ export async function GET(req: NextRequest) {
     // coin cannot sit on the rail on a stale volume. One label, one meaning, on
     // every surface.
     filters.push({ trendingAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) } });
+  }
+  if (sort === "top") {
+    // Top ranks on market cap, so it may only rank on a cap the keeper measured
+    // recently. A coin whose pool vanished can never be re-measured, so its last
+    // cap is frozen forever — and ranking on it parked a dead coin at the top of
+    // the list (a $2.5k token shown at $377M). Same gate as the feed rail, so
+    // the tab and the rail cannot disagree. See lib/freshness.ts.
+    filters.push({ lastSyncedAt: { gte: mcFreshCutoff() } });
   }
   if (q) {
     filters.push({

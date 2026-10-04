@@ -33,7 +33,7 @@ import { ingestNewTokens, ingestTrending } from "./ingest";
 import { holdersForMints } from "./holders";
 import { reconcilePositions } from "./reconcile";
 import type { ReconcileResult } from "./reconcile";
-import { hideDust } from "./retention";
+import { hideDust, hideDeadMarkets } from "./retention";
 import { solUsd } from "./sol-price";
 import { VISIBLE_COIN } from "./visibility";
 
@@ -68,6 +68,8 @@ export type SyncResult = {
   holdersUpdated?: number;
   /** Dust coins hidden this tick by the holder gate (0 when the step is off). */
   dustHidden?: number;
+  /** Coins hidden this tick because the keeper could not measure their market. */
+  deadMarketsHidden?: number;
 };
 
 /** totalSupply is raw units with 6 decimals. */
@@ -435,12 +437,24 @@ export async function runKeeper(opts: {
   // and no sweep, so it is safe to run every tick — this is what keeps the
   // catalogue clean continuously instead of once a day.
   let dustHidden = 0;
+  let deadMarketsHidden = 0;
   if (opts.dust && opts.dust > 0) {
     try {
       const r = await hideDust({ limit: opts.dust });
       dustHidden = r.hidden;
     } catch (e) {
       errors.push(`dust: ${(e as Error).message.slice(0, 90)}`);
+    }
+    // Coins the keeper has been unable to re-measure for days — the market-cap
+    // half of the story (see hideDeadMarkets in lib/retention.ts). Same step as
+    // the dust gate because it is also pure database work with no network, so it
+    // belongs on every tick, and it shares the one bound.
+    try {
+      const r = await hideDeadMarkets({ limit: opts.dust });
+      deadMarketsHidden = r.hidden;
+      if (r.refused) errors.push(`dead-markets: ${r.refused}`);
+    } catch (e) {
+      errors.push(`dead-markets: ${(e as Error).message.slice(0, 90)}`);
     }
   }
 
@@ -469,5 +483,6 @@ export async function runKeeper(opts: {
     reconciled,
     holdersUpdated,
     dustHidden,
+    deadMarketsHidden,
   };
 }
