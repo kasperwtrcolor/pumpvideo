@@ -147,10 +147,12 @@ export async function POST(req: NextRequest) {
 
   // A real clip supersedes the placeholder art card for this coin. The art card
   // is the default front door for a token nobody has clipped yet; once a genuine
-  // video exists it is strictly better, so drop the placeholder. Ingest recreates
-  // it automatically if the coin later ends up with zero clips again.
+  // video exists it is strictly better, so drop EVERY placeholder (videoUrl
+  // null) for this coin — whatever source wrote it, not just INGEST — so the
+  // token never shows both a still card and the clip. Ingest recreates a
+  // placeholder automatically only if the coin later ends up with zero clips.
   await prisma.clip.deleteMany({
-    where: { coinId: coin.id, source: "INGEST", videoUrl: null },
+    where: { coinId: coin.id, videoUrl: null },
   });
 
   const clip = await prisma.clip.create({

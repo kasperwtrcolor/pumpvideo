@@ -190,6 +190,25 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  // A real clip supersedes the art-only placeholder for the same token.
+  //
+  // Every freshly-ingested token gets one placeholder clip (videoUrl null) so it
+  // can appear at all; that is the right default for a token nobody has clipped.
+  // But the moment someone posts a real video for that token, the placeholder is
+  // strictly worse content for the same coin — showing both puts one token on
+  // the wall twice, once as a still art card and once as the clip someone
+  // actually made. Uploads already delete the placeholder (app/api/clips), so
+  // this set is normally redundant; it is enforced here too because "never show
+  // it" has to hold even if a write path is ever missed. Small: only coins with
+  // a real clip (today, the seeded + uploaded ones).
+  const realClipCoinIds = (
+    await prisma.clip.findMany({
+      where: { ready: true, videoUrl: { not: null } },
+      select: { coinId: true },
+      distinct: ["coinId"],
+    })
+  ).map((c) => c.coinId);
+
   /**
    * The where-clause, as a function of whether the Movers/Trending gate is applied.
    *
@@ -229,6 +248,11 @@ export async function GET(req: NextRequest) {
     return {
       ready: true,
       coin,
+      // Drop an art-only placeholder when its coin has a real clip (see
+      // realClipCoinIds above) — user videos take precedence over the art card.
+      ...(realClipCoinIds.length
+        ? { NOT: { videoUrl: null, coinId: { in: realClipCoinIds } } }
+        : {}),
       ...(since ? { createdAt: { lte: since } } : {}),
       ...social,
     };

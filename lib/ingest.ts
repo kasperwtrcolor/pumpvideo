@@ -370,9 +370,10 @@ export async function ingestTrending(opts: {
         data: {
           coinId: coin.id,
           // INGEST, not a trending-specific source: this is the same art-only
-          // placeholder an ingested launch gets, and it must be superseded by a
-          // real upload under the exact rule the clips route uses
-          // (`source: "INGEST", videoUrl: null`).
+          // placeholder an ingested launch gets. A null-video placeholder is not
+          // a real clip — a real upload supersedes it (the clips route deletes
+          // any clip with `videoUrl: null` for the coin), and the feed hides one
+          // whenever its coin has a real clip, so user videos take precedence.
           source: "INGEST",
           videoUrl: null,
           thumbUrl: thumb,
