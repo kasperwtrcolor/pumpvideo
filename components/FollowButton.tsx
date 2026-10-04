@@ -67,6 +67,14 @@ const SIZES = {
   md: "gap-1.5 px-4 py-2 text-[12px]",
 } as const;
 
+/**
+ * Icon-only sizing, for a row that already carries three other blocks. A labelled
+ * button costs ~90px, which on a narrow phone column squeezes the coin's *name*
+ * down to an ellipsis — the one thing the row exists to show. The glyph keeps
+ * the meaning; `title`/`aria-label` keep it readable to a screen reader.
+ */
+const COMPACT = "h-8 w-8 justify-center p-0";
+
 export function FollowButton({
   traderId,
   initialFollowing,
@@ -133,16 +141,20 @@ export function TokenFollowButton({
   mint,
   initialFollowing,
   size = "sm",
+  compact = false,
   onChange,
 }: {
   mint: string;
   initialFollowing: boolean;
   size?: keyof typeof SIZES;
+  /** Icon-only — see COMPACT. For rows where the label would squeeze the name. */
+  compact?: boolean;
   onChange?: (following: boolean) => void;
 }) {
   const toggle = useToggleFollow("token");
   const [following, setFollowing] = useState(initialFollowing);
   const [err, setErr] = useState<string | null>(null);
+  const iconCls = compact ? "h-4 w-4" : "h-3.5 w-3.5";
 
   return (
     <button
@@ -159,8 +171,8 @@ export function TokenFollowButton({
       }
       aria-label={following ? "Unfollow this token" : "Follow this token"}
       title={err ?? (following ? "Unfollow token" : "Follow token — its clips show in your Following feed")}
-      className={`press flex shrink-0 items-center gap-1.5 rounded-full font-black ${
-        SIZES[size]
+      className={`press flex shrink-0 items-center rounded-full font-black ${
+        compact ? COMPACT : SIZES[size]
       } ${
         following
           ? "border border-line bg-panel2 text-ink"
@@ -169,13 +181,13 @@ export function TokenFollowButton({
     >
       {following ? (
         <>
-          <UserCheckIcon key="on" className="star-pop h-3.5 w-3.5" />
-          Following
+          <UserCheckIcon key="on" className={`star-pop ${iconCls}`} />
+          {!compact && "Following"}
         </>
       ) : (
         <>
-          <UserPlusIcon className="h-3.5 w-3.5" />
-          Follow
+          <UserPlusIcon className={iconCls} />
+          {!compact && "Follow"}
         </>
       )}
     </button>

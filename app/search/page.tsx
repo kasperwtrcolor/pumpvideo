@@ -221,7 +221,7 @@ function TokenRow({ t }: { t: TokenHitDTO }) {
       change24hPct={t.change24hPct}
       complete={t.complete}
       solUsd={solUsd}
-      trailing={<TokenFollowButton mint={t.mint} initialFollowing={t.isFollowing} />}
+      trailing={<TokenFollowButton mint={t.mint} initialFollowing={t.isFollowing} compact />}
     />
   );
 }
