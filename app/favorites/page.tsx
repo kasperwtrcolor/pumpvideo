@@ -9,7 +9,7 @@ import { useTrader } from "@/components/TraderProvider";
 import { BuySheet } from "@/components/BuySheet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { StarIcon } from "@/components/Icons";
-import { Mascot } from "@/components/Mascots";
+import { CultureIcon } from "@/components/CultureIcon";
 import { LiveDot } from "@/components/PriceTicker";
 import { artUrl } from "@/lib/art-url";
 import { fmtPct, fmtPrice, fmtSol, fmtUsd, sym } from "@/lib/format";
@@ -125,7 +125,7 @@ export default function FavoritesPage() {
 
         {authEnabled && !authenticated && (
           <div className="mt-6 rounded-2xl border border-line bg-panel p-5 text-center">
-            <Mascot name="cat" size={76} className="mx-auto" />
+            <CultureIcon name="popcat" size={76} className="mx-auto" />
             <p className="mt-3 text-sm font-bold">Save clips as you scroll</p>
             <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
               Log in and tap the star on any clip to keep it here — then come back and buy
@@ -161,7 +161,7 @@ export default function FavoritesPage() {
 
             {!loading && !error && items.length === 0 && (
               <div className="rounded-2xl border border-line bg-panel px-4 py-12 text-center">
-                <Mascot name="pepe" size={76} className="mx-auto" />
+                <CultureIcon name="wif" size={76} className="mx-auto" />
                 <p className="mt-3 text-sm font-bold">Nothing saved yet</p>
                 <p className="mt-1.5 text-[12px] text-muted">
                   Tap the star on a clip in{" "}

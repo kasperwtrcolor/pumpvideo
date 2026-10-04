@@ -59,7 +59,7 @@ export default function NotificationsPage() {
   if (enabled && !authenticated) {
     return (
       <EmptyState
-        mascot="dog"
+        mascot="slerf"
         size={80}
         title="Notifications need an account."
         action={
@@ -91,7 +91,7 @@ export default function NotificationsPage() {
 
       {items.length === 0 ? (
         <EmptyState
-          mascot="dog"
+          mascot="bonk"
           size={76}
           title="Nothing yet."
           body="Follow some people or tokens and their activity lands here."

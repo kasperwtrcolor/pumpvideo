@@ -98,7 +98,7 @@ export function PositionsSection() {
 
         {data && data.positions.length === 0 && (
           <EmptyState
-            mascot="cat"
+            mascot="slerf"
             size={72}
             title="No positions."
             className="py-10"

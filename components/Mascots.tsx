@@ -8,6 +8,7 @@
  * Each is a transparent PNG, so it sits on any surface without a white box.
  */
 import type { ReactNode } from "react";
+import { CultureIcon, isCultureName, type CultureName } from "./CultureIcon";
 
 export type MascotName = "dog" | "pepe" | "cat" | "solana";
 
@@ -49,31 +50,53 @@ export function Mascot({
 }
 
 /**
- * An overlapping row of the mascots, for social proof next to a follow button.
- * Ringed with the page background so the faces read as a stack rather than a
- * smear.
+ * An overlapping row of faces, for social proof next to a follow button —
+ * the brand mascots interleaved with the memecoin culture icons, so the row
+ * reads as a community rather than a fixed cast. Ringed with the page
+ * background so the faces read as a stack rather than a smear.
  */
+const STACK: ({ kind: "mascot"; name: MascotName } | { kind: "culture"; name: CultureName })[] = [
+  { kind: "mascot", name: "solana" },
+  { kind: "culture", name: "bonk" },
+  { kind: "mascot", name: "dog" },
+  { kind: "culture", name: "pengu" },
+  { kind: "mascot", name: "pepe" },
+  { kind: "culture", name: "wif" },
+  { kind: "mascot", name: "cat" },
+];
+
 export function MascotStack({ size = 30 }: { size?: number }) {
+  const overlap = -size * 0.34;
   return (
     <span className="flex items-center" aria-hidden>
-      {MASCOTS.map((m, i) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={m.name}
-          src={m.src}
-          alt=""
-          width={size}
-          height={size}
+      {STACK.map((m, i) => (
+        <span
+          key={`${m.kind}-${m.name}`}
           className="rounded-full bg-bg"
           style={{
             width: size,
             height: size,
-            objectFit: "contain",
-            marginLeft: i === 0 ? 0 : -size * 0.34,
-            zIndex: MASCOTS.length - i,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginLeft: i === 0 ? 0 : overlap,
+            zIndex: STACK.length - i,
             position: "relative",
           }}
-        />
+        >
+          {m.kind === "culture" ? (
+            <CultureIcon name={m.name} size={size} />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={SRC[m.name]}
+              alt=""
+              width={size}
+              height={size}
+              style={{ width: size, height: size, objectFit: "contain" }}
+            />
+          )}
+        </span>
       ))}
     </span>
   );
@@ -92,7 +115,7 @@ export function EmptyState({
   action,
   className = "",
 }: {
-  mascot?: MascotName;
+  mascot?: MascotName | CultureName;
   size?: number;
   title: string;
   body?: ReactNode;
@@ -103,7 +126,11 @@ export function EmptyState({
     <div
       className={`flex flex-col items-center justify-center gap-3 px-8 text-center ${className}`}
     >
-      <Mascot name={mascot} size={size} />
+      {isCultureName(mascot) ? (
+        <CultureIcon name={mascot} size={size} />
+      ) : (
+        <Mascot name={mascot} size={size} />
+      )}
       <p className="text-lg font-bold">{title}</p>
       {body ? <p className="text-xs leading-relaxed text-muted">{body}</p> : null}
       {action}
