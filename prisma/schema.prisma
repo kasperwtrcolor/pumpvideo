@@ -76,6 +76,17 @@ model Coin {
   /// stored there would be silently cleared by the next sync — a bug that would
   /// look like "hiding just doesn't work" rather than "something overwrote it".
   hiddenAt    DateTime?
+  /// Membership in the current Dexscreener-trending set: stamped with "now" by
+  /// the trending ingest (lib/ingest.ts) for every token on the latest board,
+  /// and cleared to null for any coin that dropped off it. Non-null means "this
+  /// token is on the trending board right now"; the freshness window turns a
+  /// stamp the keeper has stopped refreshing back into an absence, so a coin
+  /// that falls off the board leaves the rail instead of sitting on it forever.
+  ///
+  /// Distinct from `lastSyncedAt` on purpose: lastSyncedAt says "we priced this"
+  /// (the volume/movers sweeps write it too), trendingAt says "the trending
+  /// board named this". Trending must be able to answer the second question.
+  trendingAt  DateTime?
   poolAddress String?
   creator     String?
   twitter     String?
@@ -97,6 +108,8 @@ model Coin {
   /// Every visibility-filtered read touches this, and the retention sweep scans
   /// it to find what is currently hidden.
   @@index([hiddenAt])
+  /// The Trending rail reads this on every request (trendingAt >= now-window).
+  @@index([trendingAt])
 }
 
 /// Price history. Written by the market keeper on every sync; powers the

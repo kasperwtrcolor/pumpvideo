@@ -13,11 +13,11 @@ export const dynamic = "force-dynamic";
 const NEW_WINDOW_MS = 60 * 60_000;
 
 /**
- * How stale a coin's trading activity may be and still count toward Trending.
+ * How stale a coin's trending stamp may be and still count toward Trending.
  * Matches the feed rail's gate exactly (see app/api/feed/route.ts), so the two
- * "Trending" surfaces cannot disagree: a coin must have shown trailing-24h
- * volume *and* been measured recently, or a frozen number from days ago keeps it
- * on the rail.
+ * "Trending" surfaces cannot disagree: a coin is trending because the
+ * Dexscreener board's most recent read named it (the `trendingAt` stamp the
+ * ingest writes), not because a stored volume happened to be large.
  */
 const TRENDING_FRESH_MS = 2 * 60 * 60_000;
 
@@ -75,14 +75,12 @@ export async function GET(req: NextRequest) {
     });
   }
   if (sort === "trending") {
-    // Same definition as the feed rail: the coin must have shown trailing-24h
-    // volume, and the reading must be recent — a stored volume the keeper can no
-    // longer refresh is a number from the past, and ranking on it keeps a dead
-    // coin on the rail. One label, one meaning, on every surface.
-    filters.push({
-      volume24hSol: { gt: 0 },
-      lastSyncedAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) },
-    });
+    // Same definition as the feed rail: the coin carries a trending stamp the
+    // ingest wrote within the freshness window. The stamp is the board's own
+    // membership decision, cleared automatically when a token drops off — so a
+    // coin cannot sit on the rail on a stale volume. One label, one meaning, on
+    // every surface.
+    filters.push({ trendingAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) } });
   }
   if (q) {
     filters.push({

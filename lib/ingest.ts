@@ -25,6 +25,8 @@
  */
 import { prisma } from "./db";
 import { fetchCoins, toCoinRecord, type PumpCoin } from "./pumpfun";
+import { fetchTrending } from "./dexscreener";
+import { solUsd } from "./sol-price";
 import { artUrl } from "./art-url";
 
 /**
@@ -266,4 +268,139 @@ function describeError(e: unknown): string {
     return `${e.name}${code ? `(${code})` : ""}: ${e.message || "(no message)"}`;
   }
   return String(e);
+}
+
+/**
+ * Trending ingest — the Dexscreener board, filtered to tokens that are actually
+ * trading (see `fetchTrending` in lib/dexscreener.ts for why the boost board is
+ * the only public proxy for "trending" and the volume/liquidity floors are what
+ * make it mean "trending" rather than "paid").
+ *
+ * Where this sits in the product: this is the one ingest path that is NOT
+ * pump.fun. A token trending on Dexscreener may never have been launched on
+ * pump.fun, and the whole point of the Trending rail is to show what the market
+ * is trading — not what our original source happened to carry. So a survivor is
+ * upserted in the same shape as any other coin (`provider: "DEXSCREENER"`) and
+ * gets the same art-only placeholder clip, which a real upload supersedes
+ * exactly as it does for an ingested launch (that is why the clip's `source` is
+ * `INGEST`, not a trending-specific value).
+ *
+ * Membership is the `trendingAt` stamp: every survivor is stamped "now", and
+ * any coin NOT on this tick's board has its stamp cleared. The rail reads the
+ * stamp, so a token that leaves the board leaves the rail on the very next tick
+ * rather than lingering until its volume ages out.
+ *
+ * Transient-cost note: the boosts fan out to a handful of Dexscreener calls
+ * (~31 mints today = two pairs calls). On any failure `fetchTrending` returns
+ * an empty list, and this function then changes NOTHING — an unread board must
+ * not read as "the board is empty" and blank the rail.
+ */
+export async function ingestTrending(opts: {
+  limit: number;
+  minVolumeUsd?: number;
+  minLiquidityUsd?: number;
+}): Promise<{
+  considered: number;
+  kept: number;
+  added: number;
+  clips: number;
+  dropped: number;
+}> {
+  const trending = await fetchTrending({
+    minVolumeUsd: opts.minVolumeUsd,
+    minLiquidityUsd: opts.minLiquidityUsd,
+  });
+
+  // An empty board is "we could not read it", never "nothing is trending".
+  // Returning early leaves the previous board (and the rail) intact.
+  if (trending.length === 0) {
+    return { considered: 0, kept: 0, added: 0, clips: 0, dropped: 0 };
+  }
+
+  const board = trending.slice(0, opts.limit);
+  const usd = await solUsd().catch(() => 0);
+  const now = new Date();
+  const mints = board.map((t) => t.mint);
+
+  let added = 0;
+  let clips = 0;
+
+  for (const t of board) {
+    const existing = await prisma.coin.findUnique({
+      where: { mint: t.mint },
+      select: { id: true },
+    });
+
+    const record = {
+      provider: "DEXSCREENER",
+      name: t.name,
+      symbol: t.symbol,
+      imageUrl: t.imageUrl,
+      priceSol: t.priceSol,
+      // Market cap and volume are stored in SOL, like every other coin, so the
+      // Trending rail can rank a foreign token against a pump.fun one on one
+      // scale. Without a SOL price we cannot convert — write 0 rather than a
+      // USD figure that would dwarf every SOL-denominated coin on the rail.
+      marketCapSol: usd > 0 ? t.marketCapUsd / usd : 0,
+      volume24hSol: usd > 0 ? t.volume24hUsd / usd : 0,
+      change24hPct: t.change24hPct,
+      poolAddress: t.poolAddress,
+      // A Dexscreener pair exists only for a token that has left a bonding
+      // curve for a real pool, so it is graduated by definition.
+      complete: true,
+      trendingAt: now,
+      lastSyncedAt: now,
+      ...(t.launchedAt ? { launchedAt: t.launchedAt } : {}),
+    };
+
+    const coin = await prisma.coin.upsert({
+      where: { mint: t.mint },
+      create: { mint: t.mint, ...record },
+      update: record,
+    });
+    if (!existing) added++;
+
+    const hasClip = await prisma.clip.findFirst({
+      where: { coinId: coin.id },
+      select: { id: true },
+    });
+    if (!hasClip) {
+      await prisma.clip.create({
+        data: {
+          coinId: coin.id,
+          // INGEST, not a trending-specific source: this is the same art-only
+          // placeholder an ingested launch gets, and it must be superseded by a
+          // real upload under the exact rule the clips route uses
+          // (`source: "INGEST", videoUrl: null`).
+          source: "INGEST",
+          videoUrl: null,
+          thumbUrl: artUrl(coin.imageUrl),
+          caption: (t.name || t.symbol).slice(0, 90),
+          author: "unclaimed",
+          rank: rankFor({
+            marketCapSol: record.marketCapSol,
+            launchedAt: t.launchedAt,
+            complete: true,
+          }),
+          ready: true,
+        },
+      });
+      clips++;
+    }
+  }
+
+  // Everything the board no longer names loses its stamp — a token is trending
+  // because *this* board says so, not because it said so once.
+  const dropped = await prisma.coin.updateMany({
+    where: { trendingAt: { not: null }, mint: { notIn: mints } },
+    data: { trendingAt: null },
+  });
+
+  return {
+    considered: trending.length,
+    kept: board.length,
+    added,
+    clips,
+    dropped: dropped.count,
+  };
 }

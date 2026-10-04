@@ -46,12 +46,20 @@ set -a; source "$ENV_FILE"; set +a
 # and a mirror built from our own fill log can never notice. This is what makes
 # the book self-correcting instead of wrong forever.
 #
+# `--trending 40` rebuilds the Dexscreener trending board each tick: it reads
+# Dexscreener's boost board, keeps only tokens actually trading 24h (volume and
+# liquidity floors, so a paid boost with no trading is dropped), stamps them as
+# the current trending set, and clears the stamp from anything that fell off.
+# The Trending rail reads that stamp. 40 is a generous cap over the ~30 boosted
+# Solana mints a typical board carries. It is two Dexscreener calls per tick on
+# top of the price sweep's budget.
+#
 # `--dust 500` hides up to 500 coins per tick that are older than an hour and
 # still have fewer than 30 holders (see hideDust in lib/retention.ts). It is pure
 # database work — no external calls — so it runs every tick and keeps the
 # catalogue clean continuously instead of once a day. The 500 is a bound, not a
 # target: on a healthy catalogue this is 0.
-if ! timeout 300 npm run sync --silent -- --limit 200 --ingest 8 --reconcile 50 --holders 50 --dust 500; then
+if ! timeout 300 npm run sync --silent -- --limit 200 --ingest 8 --trending 40 --reconcile 50 --holders 50 --dust 500; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi

@@ -34,26 +34,20 @@ const POOL = 2000;
 const NEW_WINDOW_MS = 60 * 60_000;
 
 /**
- * How stale a coin's trading activity may be and still count toward Trending.
+ * How stale a coin's trending stamp may be and still count toward Trending.
  *
- * Trending is a claim about *now* — "these are the tokens being traded most".
- * The gate below cannot honour that from the stored number alone: `volume24hSol`
- * is only as fresh as the keeper's last successful measurement of that coin, and
- * for a coin the keeper can no longer price (a graduated token whose pool was
- * pulled, a launch that fell out of the ranking) it is frozen at whatever it was
- * the last time anyone looked. A frozen six-figure volume on a token that has
- * not traded in days is exactly how a dead token sits on a Trending rail forever
- * — seen in production, where a $23-cap coin topped the raw volume sort, last
- * measured 112 hours earlier.
+ * Trending is the Dexscreener board, not a volume sort: the trending ingest
+ * (lib/ingest.ts) stamps `trendingAt` on every token on the latest board and
+ * clears it from everything that fell off, so membership is a fact the board
+ * asserts, refreshed each keeper tick. This window is how long a stamp stays
+ * trustworthy if the keeper stops refreshing it — a token that leaves the board
+ * loses its stamp on the next tick, but if ticks themselves stop (a dead cron),
+ * a stamp older than this must stop counting rather than pinning a token to the
+ * rail forever.
  *
- * So Trending requires the coin to have been *measured* recently. The keeper
- * only writes `lastSyncedAt` when a live source actually answered for the coin,
- * so any coin that fails this check is one we cannot currently price — and a
- * volume we cannot stand behind has no business claiming to be trending.
- *
- * Two hours is generous on purpose: the keeper walks the catalogue round-robin,
- * so a real coin can go an hour or two between measurements, and the metric
- * itself (a trailing 24h window) is already smooth.
+ * Two hours against a 5-minute cadence is deliberately generous: it survives a
+ * run of failed ticks (a Dexscreener outage leaves the prior board standing)
+ * without ever keeping something the board has dropped.
  */
 const TRENDING_FRESH_MS = 2 * 60 * 60_000;
 
@@ -124,25 +118,28 @@ export async function GET(req: NextRequest) {
    * is not the Trending rail (or is a single-coin view, where the rail has no
    * say).
    *
-   * Two conditions, both about the present: the coin has shown trailing-24h
-   * volume, and that reading is recent (see TRENDING_FRESH_MS).
+   * One condition: the coin carries a trending stamp the ingest wrote within
+   * the freshness window (see TRENDING_FRESH_MS). The stamp is the Dexscreener
+   * board's own membership decision — a coin is trending because the board said
+   * so this tick, not because a volume number happened to be large.
    *
-   * Why not a plain `volume24hSol > 0` sort: the stored volume is only as fresh
-   * as the keeper's last measurement, and for a coin it can no longer price (a
-   * graduated token whose pool was pulled, a launch that fell out of the pump.fun
-   * ranking) it is frozen at its last-known value. That is how the rail filled
-   * with tokens showing a stale six-figure volume and a $23 market cap. Requiring
-   * a recent measurement is the whole gate — no live re-read is needed, because a
-   * trailing-24h volume does not need to be verified to the second the way a
-   * point-in-time market cap did.
+   * Why not a `volume24hSol > 0` sort: the stored volume is only as fresh as
+   * the keeper's last measurement of that coin, and for one it can no longer
+   * price it freezes at its last value. That is how the rail filled with tokens
+   * showing a stale six-figure volume and a $23 market cap. The stamp is
+   * refreshed (and cleared) by the ingest itself, so it cannot go stale the same
+   * way.
    */
   let trendingCoinIds: string[] | null = null;
   if (sort === "trending" && !mint) {
+    // Membership is the trending stamp the ingest wrote — not a stored volume.
+    // A coin is on Trending because the Dexscreener board named it this tick,
+    // and the stamp is the record of that; ranking a stale volume is exactly how
+    // a token that left the board used to keep sitting on the rail.
     const rows = await prisma.coin.findMany({
       where: {
         ...VISIBLE_COIN,
-        volume24hSol: { gt: 0 },
-        lastSyncedAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) },
+        trendingAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) },
       },
       select: { id: true },
     });

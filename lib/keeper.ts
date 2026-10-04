@@ -29,7 +29,7 @@
 import { prisma } from "./db";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
-import { ingestNewTokens } from "./ingest";
+import { ingestNewTokens, ingestTrending } from "./ingest";
 import { holdersForMints } from "./holders";
 import { reconcilePositions } from "./reconcile";
 import type { ReconcileResult } from "./reconcile";
@@ -53,6 +53,14 @@ export type SyncResult = {
     coins: number;
     clips: number;
     skipped: number;
+  };
+  /** Present only when the trending step ran — see `opts.trending`. */
+  trending?: {
+    considered: number;
+    kept: number;
+    added: number;
+    clips: number;
+    dropped: number;
   };
   /** Positions brought back in step with the chain, or null if the pass failed. */
   reconciled: ReconcileResult | null;
@@ -139,6 +147,17 @@ export async function runKeeper(opts: {
    */
   ingest?: number;
   /**
+   * How many Dexscreener-trending tokens to keep on the trending board, or
+   * 0/undefined to skip.
+   *
+   * Unlike `ingest`, this is not a pump.fun sweep: it reads Dexscreener's boost
+   * board, filters it to tokens that are actually trading, and stamps the
+   * survivors as the current trending set (see `ingestTrending`). Off by default
+   * because the HTTP route shares this function and a serverless invocation
+   * should not be fanning out to Dexscreener; the VPS cron opts in.
+   */
+  trending?: number;
+  /**
    * How many positions to reconcile against the chain, or 0/undefined to skip.
    * Off by default for the same reason as `ingest`: one RPC read per position
    * does not belong inside a 60-second serverless invocation. The VPS cron opts
@@ -184,6 +203,20 @@ export async function runKeeper(opts: {
     }
   }
 
+  // Trending board refresh. Same discovery slot as ingest (both run before the
+  // catalog is read), but a different source and a different failure mode:
+  // `ingestTrending` never clears the board on an unreadable response, so a
+  // Dexscreener blip leaves the previous set standing rather than blanking the
+  // rail. Its own try/catch, so a failure here cannot sink the price sweep.
+  let trending: SyncResult["trending"];
+  if (!opts.mints?.length && opts.trending && opts.trending > 0) {
+    try {
+      trending = await ingestTrending({ limit: opts.trending });
+    } catch (e) {
+      errors.push(`trending: ${(e as Error).message.slice(0, 90)}`);
+    }
+  }
+
   // ---- positions ----------------------------------------------------------
   // The wallet is the authority on what is held, and this runs before the
   // catalog is even read: a book listing coins the wallet no longer has is
@@ -216,6 +249,7 @@ export async function runKeeper(opts: {
     errors,
     sweepErrors: [],
     ingested,
+    trending,
     reconciled,
   };
   if (coins.length === 0) return empty;
@@ -431,6 +465,7 @@ export async function runKeeper(opts: {
     sweepErrors: sweepErrors.slice(0, 5),
     note,
     ingested,
+    trending,
     reconciled,
     holdersUpdated,
     dustHidden,

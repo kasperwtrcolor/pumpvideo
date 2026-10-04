@@ -34,6 +34,7 @@ function arg(name: string, fallback: number) {
 
 const LIMIT = arg("limit", 40);
 const INGEST = arg("ingest", 0);
+const TRENDING = arg("trending", 0);
 const RECONCILE = arg("reconcile", 0);
 const HOLDERS = arg("holders", 0);
 const DUST = arg("dust", 0);
@@ -42,6 +43,7 @@ async function main() {
   const r = await runKeeper({
     limit: LIMIT,
     ingest: INGEST,
+    trending: TRENDING,
     reconcile: RECONCILE,
     holders: HOLDERS,
     dust: DUST,
@@ -63,6 +65,12 @@ async function main() {
     console.log(
       `ingest: considered ${r.ingested.considered}, +${r.ingested.coins} coins, ` +
         `+${r.ingested.clips} clips, skipped ${r.ingested.skipped} (filters)`,
+    );
+  }
+  if (r.trending) {
+    console.log(
+      `trending: board ${r.trending.kept}/${r.trending.considered}, ` +
+        `+${r.trending.added} coins, +${r.trending.clips} clips, -${r.trending.dropped} dropped`,
     );
   }
   if (r.reconciled && r.reconciled.drifted > 0) {
