@@ -306,7 +306,11 @@ export async function GET(req: NextRequest) {
 
   let clips: Awaited<ReturnType<typeof loadClips>>;
 
-  if (seed) {
+  if (seed || sort === "trending") {
+    // Trending always takes this path, even with no client seed. Its order is
+    // the hour permutation (below), not a ranked or client-driven one, so it
+    // must not fall through to the plain windowed query — that would order it by
+    // volume and leak the boost board's ranking back onto the rail.
     // Two steps on purpose. Permuting the pool *ids* and then loading only the
     // requested window keeps this bounded by `limit` rows of real work: the
     // obvious version (fetch the whole pool with its coin and slice in memory)

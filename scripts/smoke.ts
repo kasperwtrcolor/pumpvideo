@@ -304,15 +304,23 @@ async function main() {
 
   const trendRes = await fetch(`${BASE}/api/feed?sort=trending&limit=8`);
   const trendFeed = (await trendRes.json()) as {
-    items: { coin: { volume24hSol: number } }[];
+    items: { id: string; coin: { volume24hSol: number } }[];
     total: number;
   };
   check("trending feed returns items", trendFeed.items.length > 0, `${trendFeed.total} clips`);
   const vols = trendFeed.items.map((it) => it.coin.volume24hSol);
+  // Trending is *permuted* on the hour bucket, not ranked. The Dexscreener
+  // board's own order is a boost leaderboard (see lib/trending-order.ts), so
+  // ordering by it would turn the rail into an advert. What must hold instead is
+  // that the permutation is stable — one order for everyone, regardless of the
+  // session seed the client sends — or pagination would repeat and skip clips.
+  const trendSeeded = (await (
+    await fetch(`${BASE}/api/feed?sort=trending&limit=8&seed=smoke-other-seed`)
+  ).json()) as { items: { id: string }[] };
   check(
-    "trending feed is ordered by 24h volume (descending)",
-    vols.every((v, i) => i === 0 || vols[i - 1] >= v),
-    vols.map((v) => Math.round(v)).join(" ≥ "),
+    "trending order is the same regardless of the session seed (hourly rotation)",
+    trendFeed.items.map((it) => it.id).join(",") === trendSeeded.items.map((it) => it.id).join(","),
+    trendFeed.items.map((it) => it.id).join(",").slice(0, 60),
   );
   // The gate is "has traded, measured recently". Volume alone proves the first
   // half; a stored 0 means "never measured" and has no business on the rail.
