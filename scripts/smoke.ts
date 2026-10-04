@@ -302,26 +302,36 @@ async function main() {
     `${fresh}/${newFeed.items.length} launched in the last 30m`,
   );
 
-  const topRes = await fetch(`${BASE}/api/feed?sort=top&limit=8`);
-  const topFeed = (await topRes.json()) as {
-    items: { coin: { marketCapSol: number } }[];
+  const trendRes = await fetch(`${BASE}/api/feed?sort=trending&limit=8`);
+  const trendFeed = (await trendRes.json()) as {
+    items: { coin: { volume24hSol: number } }[];
     total: number;
-    solUsd: number;
   };
-  check("top feed returns items", topFeed.items.length > 0, `${topFeed.total} clips`);
-  const topCaps = topFeed.items.map((it) => it.coin.marketCapSol);
+  check("trending feed returns items", trendFeed.items.length > 0, `${trendFeed.total} clips`);
+  const vols = trendFeed.items.map((it) => it.coin.volume24hSol);
   check(
-    "top feed is ordered by market cap (descending)",
-    topCaps.every((v, i) => i === 0 || topCaps[i - 1] >= v),
-    topCaps.map((v) => Math.round(v)).join(" ≥ "),
+    "trending feed is ordered by 24h volume (descending)",
+    vols.every((v, i) => i === 0 || vols[i - 1] >= v),
+    vols.map((v) => Math.round(v)).join(" ≥ "),
   );
-  // $100k floor, evaluated in USD because market caps are stored in SOL. A small
-  // tolerance absorbs the SOL/USD cache changing between the two requests.
-  const topUsd = topFeed.solUsd || 1;
+  // The gate is "has traded, measured recently". Volume alone proves the first
+  // half; a stored 0 means "never measured" and has no business on the rail.
   check(
-    "every top-feed coin is at $100k market cap or above",
-    topCaps.every((mc) => mc * topUsd >= 99_000),
-    topCaps.map((mc) => `$${Math.round((mc * topUsd) / 1000)}k`).join(", "),
+    "every trending-feed coin has traded in the last 24h",
+    vols.every((v) => v > 0),
+    `${vols.filter((v) => v > 0).length}/${vols.length} with volume`,
+  );
+  // The rail's old name still resolves — a client bundle deployed before the
+  // rename sends `sort=top`, and it must land on Trending, not a blank rail.
+  const legacyRes = await fetch(`${BASE}/api/feed?sort=top&limit=8`);
+  const legacyFeed = (await legacyRes.json()) as {
+    items: { coin: { volume24hSol: number } }[];
+  };
+  check(
+    "sort=top still resolves to Trending (legacy alias)",
+    legacyFeed.items.length > 0 &&
+      legacyFeed.items[0].coin.volume24hSol === trendFeed.items[0].coin.volume24hSol,
+    `legacy top -> first vol ${Math.round(legacyFeed.items[0]?.coin.volume24hSol ?? -1)}`,
   );
 
   // Regression for the reason uploaded clips were invisible.

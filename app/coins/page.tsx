@@ -8,7 +8,7 @@ import { useTrader } from "@/components/TraderProvider";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
-type Sort = "movers" | "new" | "top" | "clips";
+type Sort = "movers" | "new" | "trending" | "clips";
 
 type Stats = {
   coins: number;
@@ -30,7 +30,7 @@ type CoinRow = CoinDTO & { clipCount: number; clip: string | null };
 const SORTS: { key: Sort; label: string }[] = [
   { key: "movers", label: "Movers" },
   { key: "new", label: "New" },
-  { key: "top", label: "Top" },
+  { key: "trending", label: "Trending" },
   { key: "clips", label: "Via clips" },
 ];
 

@@ -6,12 +6,11 @@ import { withTrader, serializeCoin, serializeClip, positionLite } from "@/lib/ap
 import { readTrader, resolveTrader } from "@/lib/session";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 import { solUsd } from "@/lib/sol-price";
-import { quotesFor } from "@/lib/quotes";
 import { seededShuffle } from "@/lib/shuffle";
 
 export const dynamic = "force-dynamic";
 
-type Sort = "movers" | "new" | "top";
+type Sort = "movers" | "new" | "trending";
 
 /**
  * Upper bound on how many clips the shuffle draws from.
@@ -34,32 +33,32 @@ const POOL = 2000;
 /** How far back "New" looks. A new token, not a new clip. */
 const NEW_WINDOW_MS = 60 * 60_000;
 
-/** "Top" means a market cap of at least this many USD. */
-const TOP_MIN_USD = 100_000;
-
 /**
- * How stale a coin's stored market state may be and still count toward Top.
+ * How stale a coin's trading activity may be and still count toward Trending.
  *
- * Top is a claim about *now* — "these tokens are worth $100k+". The gate below
- * cannot honour that from the stored number alone: `marketCapSol` is only as
- * fresh as the keeper's last successful measurement of that coin, and for a coin
- * the keeper can no longer price (a graduated token whose pool was pulled, an
- * on-curve launch that fell out of the ranking) it is frozen at whatever it was
- * the last time anyone looked. A frozen $375M cap on a token that rugged weeks
- * ago is exactly how a dead token sits at the top of the Top rail forever.
+ * Trending is a claim about *now* — "these are the tokens being traded most".
+ * The gate below cannot honour that from the stored number alone: `volume24hSol`
+ * is only as fresh as the keeper's last successful measurement of that coin, and
+ * for a coin the keeper can no longer price (a graduated token whose pool was
+ * pulled, a launch that fell out of the ranking) it is frozen at whatever it was
+ * the last time anyone looked. A frozen six-figure volume on a token that has
+ * not traded in days is exactly how a dead token sits on a Trending rail forever
+ * — seen in production, where a $23-cap coin topped the raw volume sort, last
+ * measured 112 hours earlier.
  *
- * So Top requires the coin to have been *measured* recently. The keeper only
- * writes `lastSyncedAt` when a live source actually answered for the coin (see
- * lib/keeper.ts), so any coin that fails this check is one we cannot currently
- * price — and a price we cannot stand behind has no business claiming $100k.
+ * So Trending requires the coin to have been *measured* recently. The keeper
+ * only writes `lastSyncedAt` when a live source actually answered for the coin,
+ * so any coin that fails this check is one we cannot currently price — and a
+ * volume we cannot stand behind has no business claiming to be trending.
  *
- * The window is six keeper ticks (the keeper samples every five minutes), so one
- * transient source outage does not knock a real coin off the rail.
+ * Two hours is generous on purpose: the keeper walks the catalogue round-robin,
+ * so a real coin can go an hour or two between measurements, and the metric
+ * itself (a trailing 24h window) is already smooth.
  */
-const TOP_FRESH_MS = 30 * 60_000;
+const TRENDING_FRESH_MS = 2 * 60 * 60_000;
 
 /**
- * GET /api/feed?sort=movers|new|top&limit=12&offset=0&seed=<str>&mint=<optional>
+ * GET /api/feed?sort=movers|new|trending&limit=12&offset=0&seed=<str>&mint=<optional>
  *
  * Returns clips stitched to their coin. This is the single payload the vertical
  * swiper renders per page — video URL, caption, coin market state, trader balance.
@@ -70,11 +69,13 @@ const TOP_FRESH_MS = 30 * 60_000;
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  // "hot" is accepted as a legacy alias: a client bundle deployed before the
-  // rail was renamed to Movers may still send it, and silently falling back to a
-  // different rail would be worse than honouring the old name.
+  // Legacy aliases: a client bundle deployed before a rename may still send the
+  // old key, and silently falling back to a different rail would be worse than
+  // honouring it. "hot" was Movers' old name; "top" was Trending's.
   const rawSort = sp.get("sort");
-  const sort = ((rawSort === "hot" ? "movers" : rawSort) as Sort) || "movers";
+  const sort =
+    ((rawSort === "hot" ? "movers" : rawSort === "top" ? "trending" : rawSort) as Sort) ||
+    "movers";
   const limit = Math.min(24, Math.max(1, Number(sp.get("limit")) || 12));
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const mint = sp.get("mint");
@@ -95,10 +96,10 @@ export async function GET(req: NextRequest) {
   // requests, and the shuffled permutation would shift between pages — dropping
   // some clips and repeating others.
   //
-  // Movers, New and Top rank by a property of the *coin*, not the clip:
+  // Movers, New and Trending rank by a property of the *coin*, not the clip:
   //   Movers — the biggest 24h price change, so it is a gainers board.
   //   New — coins launched most recently.
-  //   Top — the largest market caps.
+  //   Trending — the coins actually trading most right now, by 24h volume.
   // `rank` (and then `id`) breaks ties so a wall of equal-scoring coins still has
   // a stable order to permute.
   // A single-token wall is not a ranking, it is a body of work: every clip
@@ -108,63 +109,44 @@ export async function GET(req: NextRequest) {
     ? [{ createdAt: "desc" as const }, { id: "asc" as const }]
     : sort === "new"
       ? [{ coin: { launchedAt: "desc" as const } }, { id: "asc" as const }]
-      : sort === "top"
-        ? [{ coin: { marketCapSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+      : sort === "trending"
+        ? [{ coin: { volume24hSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
         : sort === "movers"
           ? [{ coin: { change24hPct: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
           : [{ rank: "desc" as const }, { id: "asc" as const }];
 
-  // SOL/USD is needed up here because the Top floor is a USD figure and market
-  // caps are stored in SOL. Cached for 60s inside solUsd(), so this costs
-  // nothing even though the ticker route calls it too.
+  // SOL/USD rides along on every feed response (the client prices cards in USD),
+  // and solUsd() is cached for 60s, so reading it here costs nothing.
   const usd = await solUsd();
 
   /**
-   * The coins that genuinely clear the Top floor *right now*, or null when this
-   * request is not the Top rail (or is a single-coin view, where the rail has no
+   * The coins that qualify for Trending *right now*, or null when this request
+   * is not the Trending rail (or is a single-coin view, where the rail has no
    * say).
    *
-   * Why this exists rather than a plain `marketCapSol >= floor` filter: the
-   * stored cap is only as fresh as the keeper's last measurement, and for any
-   * coin the keeper can no longer price it is frozen at its last-known value.
-   * A graduated token whose pool was pulled — Dexscreener answers nothing for it
-   * ever again — keeps its old high cap indefinitely, and with it a permanent
-   * seat on Top. Filtering on that number is how the rail filled with tokens
-   * showing $2k in the ticker but clearing a $100k gate in the query.
+   * Two conditions, both about the present: the coin has shown trailing-24h
+   * volume, and that reading is recent (see TRENDING_FRESH_MS).
    *
-   * So the gate is measured, not remembered: the coins are narrowed cheaply in
-   * SQL (graduated, above the floor, measured recently), then each candidate's
-   * cap is re-read live and only the ones Dexscreener can genuinely price at
-   * $100k+ survive. The result is the same number the ticker will show, so the
-   * rail and the price on each card can never disagree.
-   *
-   * `quotesFor` caches per mint for ~12s, so a scrolling client does not fan out
-   * one Dexscreener call per page.
+   * Why not a plain `volume24hSol > 0` sort: the stored volume is only as fresh
+   * as the keeper's last measurement, and for a coin it can no longer price (a
+   * graduated token whose pool was pulled, a launch that fell out of the pump.fun
+   * ranking) it is frozen at its last-known value. That is how the rail filled
+   * with tokens showing a stale six-figure volume and a $23 market cap. Requiring
+   * a recent measurement is the whole gate — no live re-read is needed, because a
+   * trailing-24h volume does not need to be verified to the second the way a
+   * point-in-time market cap did.
    */
-  let topCoinIds: string[] | null = null;
-  if (sort === "top" && !mint) {
-    const floor = TOP_MIN_USD / usd;
-    const candidates = await prisma.coin.findMany({
+  let trendingCoinIds: string[] | null = null;
+  if (sort === "trending" && !mint) {
+    const rows = await prisma.coin.findMany({
       where: {
         ...VISIBLE_COIN,
-        // Only a graduated token has an AMM pool, and only a pooled token can be
-        // worth $100k+: the bonding curve tops out far below the floor. So this
-        // is not narrowing the field, it is stating the precondition.
-        complete: true,
-        marketCapSol: { gte: floor },
-        lastSyncedAt: { gte: new Date(Date.now() - TOP_FRESH_MS) },
+        volume24hSol: { gt: 0 },
+        lastSyncedAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) },
       },
-      select: { id: true, mint: true },
+      select: { id: true },
     });
-    const quotes = await quotesFor(candidates.map((c) => c.mint));
-    topCoinIds = candidates
-      .filter((c) => {
-        const q = quotes[c.mint];
-        // `live` false means the keeper's cached number stood in for a missing
-        // Dexscreener quote — i.e. we could not verify it, so it does not count.
-        return q != null && q.live && q.marketCapSol >= floor;
-      })
-      .map((c) => c.id);
+    trendingCoinIds = rows.map((r) => r.id);
   }
 
   /**
@@ -209,7 +191,7 @@ export async function GET(req: NextRequest) {
   }
 
   /**
-   * The where-clause, as a function of whether the Movers/Top gate is applied.
+   * The where-clause, as a function of whether the Movers/Trending gate is applied.
    *
    * Building it twice is what lets the gates fall back: on a catalog the keeper
    * has not measured yet (a fresh deploy, or a very quiet day), every coin would
@@ -236,11 +218,12 @@ export async function GET(req: NextRequest) {
           { launchedAt: null, createdAt: { gte: cut } },
         ];
       }
-      if (sort === "top") {
-        // The verified set computed above. An empty array is meaningful — it
-        // means nothing clears $100k today, and Top should show nothing rather
-        // than fall back to the catalogue (see the no-fallback note below).
-        coin.id = { in: topCoinIds ?? [] };
+      if (sort === "trending") {
+        // The fresh, volume-bearing set computed above. An empty array is
+        // meaningful — it means nothing is measurably trading — and Trending
+        // should show nothing rather than fall back to the catalogue (see the
+        // no-fallback note below).
+        coin.id = { in: trendingCoinIds ?? [] };
       }
     }
     return {
@@ -253,15 +236,14 @@ export async function GET(req: NextRequest) {
 
   let where = buildWhere(true);
   let total = await prisma.clip.count({ where });
-  // Top does NOT fall back to the ungated feed.
+  // Trending does NOT fall back to the ungated feed.
   //
   // Movers and New fall back because their gates describe a ranking, and a rail
   // that ranks the whole catalogue on a quiet day is still a truthful answer.
-  // Top's gate is different in kind: it is a promise about the tokens ("$100k
-  // plus"), and dropping it would not merely re-rank the rail, it would make it
-  // lie — a $2k token shown under a heading that says $100k+. So when nothing
-  // clears the floor, Top renders empty.
-  if (total === 0 && !mint && sort !== "top") {
+  // Trending's gate is different in kind: it is a claim that these coins are
+  // being traded right now, so dropping it would make the heading a lie — a dead
+  // coin shown under "Trending". When nothing qualifies, Trending renders empty.
+  if (total === 0 && !mint && sort !== "trending") {
     where = buildWhere(false);
     total = await prisma.clip.count({ where });
   }
@@ -320,11 +302,11 @@ export async function GET(req: NextRequest) {
     // clip that was appended.
     total = Math.max(total, ids.length);
 
-    // New and Movers are ranked rails: the order *is* the meaning ("the latest
-    // launches", "the biggest movers"), so the shuffle is skipped and the pool's
-    // own order stands. Every other rail permutes, because its order carries no
-    // signal a viewer reads — Top is a set, not a sequence.
-    const ranked = sort === "new" || sort === "movers";
+    // New, Movers and Trending are ranked rails: the order *is* the meaning
+    // ("the latest launches", "the biggest movers", "the most traded"), so the
+    // shuffle is skipped and the pool's own order stands. Every other rail
+    // permutes, because its order carries no signal a viewer reads.
+    const ranked = sort === "new" || sort === "movers" || sort === "trending";
     const seq = ranked
       ? ids.map((id) => ({ id }))
       : seededShuffle(ids.map((id) => ({ id })), seed);

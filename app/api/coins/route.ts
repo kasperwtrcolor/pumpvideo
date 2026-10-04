@@ -13,14 +13,24 @@ export const dynamic = "force-dynamic";
 const NEW_WINDOW_MS = 60 * 60_000;
 
 /**
- * GET /api/coins?sort=movers|new|top|clips&limit=24&offset=0&q=dog&graduated=0
+ * How stale a coin's trading activity may be and still count toward Trending.
+ * Matches the feed rail's gate exactly (see app/api/feed/route.ts), so the two
+ * "Trending" surfaces cannot disagree: a coin must have shown trailing-24h
+ * volume *and* been measured recently, or a frozen number from days ago keeps it
+ * on the rail.
+ */
+const TRENDING_FRESH_MS = 2 * 60 * 60_000;
+
+/**
+ * GET /api/coins?sort=movers|new|trending|clips&limit=24&offset=0&q=dog&graduated=0
  * Browsable coin index — the "Coins" tab.
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  // "hot" is a legacy alias for the renamed rail; see the feed route.
+  // Legacy aliases for renamed rails; see the feed route.
   const rawSort = sp.get("sort");
-  const sort = rawSort === "hot" ? "movers" : rawSort || "movers";
+  const sort =
+    rawSort === "hot" ? "movers" : rawSort === "top" ? "trending" : rawSort || "movers";
   const limit = Math.min(60, Math.max(1, Number(sp.get("limit")) || 24));
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const q = (sp.get("q") || "").trim();
@@ -36,8 +46,8 @@ export async function GET(req: NextRequest) {
   const orderBy: Prisma.CoinOrderByWithRelationInput[] =
     sort === "new"
       ? [{ launchedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "asc" }]
-      : sort === "top"
-        ? [{ marketCapSol: "desc" }, { id: "asc" }]
+      : sort === "trending"
+        ? [{ volume24hSol: "desc" }, { id: "asc" }]
         : sort === "clips"
           ? [{ clips: { _count: "desc" } }, { id: "asc" }]
           : sort === "movers"
@@ -62,6 +72,16 @@ export async function GET(req: NextRequest) {
         { launchedAt: { gte: cut } },
         { launchedAt: null, createdAt: { gte: cut } },
       ],
+    });
+  }
+  if (sort === "trending") {
+    // Same definition as the feed rail: the coin must have shown trailing-24h
+    // volume, and the reading must be recent — a stored volume the keeper can no
+    // longer refresh is a number from the past, and ranking on it keeps a dead
+    // coin on the rail. One label, one meaning, on every surface.
+    filters.push({
+      volume24hSol: { gt: 0 },
+      lastSyncedAt: { gte: new Date(Date.now() - TRENDING_FRESH_MS) },
     });
   }
   if (q) {

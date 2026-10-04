@@ -21,16 +21,16 @@ import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, Vol
 import { LiveDot, Sparkline } from "./PriceTicker";
 import { Mascot } from "./Mascots";
 
-type Sort = "movers" | "new" | "top";
+type Sort = "movers" | "new" | "trending";
 type Scope = "all" | "following";
 
 const SORTS: { key: Sort; label: string; hint: string }[] = [
   // The hint is what the rail *means*, since a one-word label can't carry it.
   // Movers is a price-change board, not "popular"; New is new *tokens*, not new
-  // clips; Top is a market-cap floor, not "best".
+  // clips; Trending is what is actually trading right now, not "best".
   { key: "movers", label: "Movers", hint: "biggest price moves in 24h" },
   { key: "new", label: "New", hint: "tokens launched in the last hour" },
-  { key: "top", label: "Top", hint: "market cap $100k and above" },
+  { key: "trending", label: "Trending", hint: "most traded in the last 24h" },
 ];
 
 /**

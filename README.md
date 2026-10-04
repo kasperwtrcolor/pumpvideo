@@ -247,7 +247,7 @@ set `ready`, and the feed serves them with no other change.
 
 ## Screens
 
-- `/` — vertical clip feed. Movers / New / Top, mute toggle, rail actions, buy sheet.
+- `/` — vertical clip feed. Movers / New / Trending, mute toggle, rail actions, buy sheet.
 - `/coins` — coin index. Sort, search, graduation filter, header stats.
 - `/coin/[symbol]` — coin detail: clip hero, market state, clips, live fills, position.
 - `/portfolio` — practice book: equity, positions with PnL, sell, fill history.
