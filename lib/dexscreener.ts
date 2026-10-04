@@ -32,6 +32,18 @@ export type DexPair = {
   pairAddress?: string;
   /** Pool creation time, epoch ms. Used as the coin's launch proxy. */
   pairCreatedAt?: number;
+  /**
+   * Token metadata. `imageUrl` is the token's own square logo — the art the
+   * clip placeholder should use. Distinct from the boost board's `openGraph`,
+   * which is a wide promotional card (the "screenshot" look), never the logo.
+   */
+  info?: {
+    imageUrl?: string;
+    header?: string;
+    openGraph?: string;
+    websites?: { url?: string; label?: string }[];
+    socials?: { url?: string; type?: string }[];
+  };
 };
 
 export type DexQuote = {
@@ -282,7 +294,11 @@ export async function fetchTrending(opts: {
       mint,
       symbol,
       name: p.baseToken?.name || symbol,
-      imageUrl: boostImage(boost),
+      // The token's own logo, from the pair — NOT the boost board's OpenGraph
+      // card. The card is a wide, branded promo image (it reads as a
+      // screenshot); the clip placeholder needs the square token art. Fall back
+      // to the boost card only when the pair carries no logo.
+      imageUrl: p.info?.imageUrl || boostImage(boost),
       priceSol,
       priceUsd: Number(p.priceUsd) || 0,
       marketCapUsd: p.marketCap ?? p.fdv ?? 0,

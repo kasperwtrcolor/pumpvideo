@@ -360,11 +360,12 @@ export async function ingestTrending(opts: {
     });
     if (!existing) added++;
 
-    const hasClip = await prisma.clip.findFirst({
+    const thumb = artUrl(coin.imageUrl);
+    const existingClip = await prisma.clip.findFirst({
       where: { coinId: coin.id },
-      select: { id: true },
+      select: { id: true, source: true, videoUrl: true, thumbUrl: true },
     });
-    if (!hasClip) {
+    if (!existingClip) {
       await prisma.clip.create({
         data: {
           coinId: coin.id,
@@ -374,7 +375,7 @@ export async function ingestTrending(opts: {
           // (`source: "INGEST", videoUrl: null`).
           source: "INGEST",
           videoUrl: null,
-          thumbUrl: artUrl(coin.imageUrl),
+          thumbUrl: thumb,
           caption: (t.name || t.symbol).slice(0, 90),
           author: "unclaimed",
           rank: rankFor({
@@ -386,6 +387,15 @@ export async function ingestTrending(opts: {
         },
       });
       clips++;
+    } else if (existingClip.source === "INGEST" && existingClip.videoUrl === null) {
+      // A placeholder art card, not a real clip — keep its art aligned with the
+      // coin's current logo. Without this, a card created before the image
+      // source was corrected to the token's own logo would keep showing the old
+      // promotional banner forever (the create branch never runs again). A real
+      // uploaded clip is left untouched.
+      if (existingClip.thumbUrl !== thumb) {
+        await prisma.clip.update({ where: { id: existingClip.id }, data: { thumbUrl: thumb } });
+      }
     }
   }
 

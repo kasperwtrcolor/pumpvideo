@@ -321,17 +321,26 @@ async function main() {
     vols.every((v) => v > 0),
     `${vols.filter((v) => v > 0).length}/${vols.length} with volume`,
   );
-  // The rail's old name still resolves — a client bundle deployed before the
-  // rename sends `sort=top`, and it must land on Trending, not a blank rail.
-  const legacyRes = await fetch(`${BASE}/api/feed?sort=top&limit=8`);
-  const legacyFeed = (await legacyRes.json()) as {
-    items: { coin: { volume24hSol: number } }[];
+  // Top is a real rail again (it was Trending's old name): the biggest market
+  // caps, ranked descending. It is NOT an alias for Trending any more.
+  const topRes = await fetch(`${BASE}/api/feed?sort=top&limit=8`);
+  const topFeed = (await topRes.json()) as {
+    items: { coin: { marketCapSol: number } }[];
+    total: number;
   };
+  check("top feed returns items", topFeed.items.length > 0, `${topFeed.total} clips`);
+  const caps = topFeed.items.map((it) => it.coin.marketCapSol);
   check(
-    "sort=top still resolves to Trending (legacy alias)",
-    legacyFeed.items.length > 0 &&
-      legacyFeed.items[0].coin.volume24hSol === trendFeed.items[0].coin.volume24hSol,
-    `legacy top -> first vol ${Math.round(legacyFeed.items[0]?.coin.volume24hSol ?? -1)}`,
+    "top feed is ordered by market cap (descending)",
+    caps.every((v, i) => i === 0 || caps[i - 1] >= v),
+    caps.map((v) => Math.round(v)).join(" ≥ "),
+  );
+  // And it must be a different rail from Trending — the two used to share a
+  // meaning; if they still returned the same first coin, Top would be broken.
+  check(
+    "top is distinct from trending",
+    topFeed.items[0]?.coin.marketCapSol !== trendFeed.items[0]?.coin.volume24hSol,
+    `top cap ${Math.round(topFeed.items[0]?.coin.marketCapSol ?? -1)} vs trend vol ${Math.round(trendFeed.items[0]?.coin.volume24hSol ?? -1)}`,
   );
 
   // Regression for the reason uploaded clips were invisible.

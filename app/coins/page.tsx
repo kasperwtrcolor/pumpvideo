@@ -8,7 +8,7 @@ import { useTrader } from "@/components/TraderProvider";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, timeAgo, sym } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
-type Sort = "movers" | "new" | "trending" | "clips";
+type Sort = "top" | "movers" | "new" | "trending" | "clips";
 
 type Stats = {
   coins: number;
@@ -28,6 +28,7 @@ type Stats = {
 type CoinRow = CoinDTO & { clipCount: number; clip: string | null };
 
 const SORTS: { key: Sort; label: string }[] = [
+  { key: "top", label: "Top" },
   { key: "movers", label: "Movers" },
   { key: "new", label: "New" },
   { key: "trending", label: "Trending" },
@@ -37,7 +38,7 @@ const SORTS: { key: Sort; label: string }[] = [
 export default function CoinsPage() {
   const { solUsd } = useTrader();
   const router = useRouter();
-  const [sort, setSort] = useState<Sort>("movers");
+  const [sort, setSort] = useState<Sort>("top");
   const [q, setQ] = useState("");
   const [graduated, setGraduated] = useState(false);
   const [rows, setRows] = useState<CoinRow[]>([]);
@@ -205,9 +206,13 @@ export default function CoinsPage() {
               </div>
 
               <div className="shrink-0 text-right">
+                {/* Market cap, in USD — the headline figure. It used to be the
+                    SOL-denominated cap, which read as a token "volume"; USD is
+                    what a market cap means to a reader, and it matches the feed
+                    card. Price stays in SOL because that is what you trade in. */}
                 <div className="text-[15px] font-bold tabular-nums">
-                  {fmtSol(c.marketCapSol)}
-                  <span className="ml-1 text-[10px] font-semibold text-muted">SOL</span>
+                  <span className="mr-1 text-[10px] font-semibold text-muted">MC</span>
+                  {fmtUsd(c.marketCapSol * solUsd)}
                 </div>
                 <div className="text-[11px] text-muted tabular-nums">
                   {fmtPrice(c.priceSol)} SOL

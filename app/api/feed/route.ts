@@ -10,7 +10,7 @@ import { seededShuffle } from "@/lib/shuffle";
 
 export const dynamic = "force-dynamic";
 
-type Sort = "movers" | "new" | "trending";
+type Sort = "movers" | "new" | "trending" | "top";
 
 /**
  * Upper bound on how many clips the shuffle draws from.
@@ -63,13 +63,12 @@ const TRENDING_FRESH_MS = 2 * 60 * 60_000;
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  // Legacy aliases: a client bundle deployed before a rename may still send the
+  // Legacy alias: a client bundle deployed before a rename may still send the
   // old key, and silently falling back to a different rail would be worse than
-  // honouring it. "hot" was Movers' old name; "top" was Trending's.
+  // honouring it. "hot" was Movers' old name. "top" is NOT aliased — it is a
+  // real rail again (market cap), the same meaning it had before the rename.
   const rawSort = sp.get("sort");
-  const sort =
-    ((rawSort === "hot" ? "movers" : rawSort === "top" ? "trending" : rawSort) as Sort) ||
-    "movers";
+  const sort = ((rawSort === "hot" ? "movers" : rawSort) as Sort) || "movers";
   const limit = Math.min(24, Math.max(1, Number(sp.get("limit")) || 12));
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const mint = sp.get("mint");
@@ -90,10 +89,12 @@ export async function GET(req: NextRequest) {
   // requests, and the shuffled permutation would shift between pages — dropping
   // some clips and repeating others.
   //
-  // Movers, New and Trending rank by a property of the *coin*, not the clip:
+  // Movers, New, Trending and Top rank by a property of the *coin*, not the clip:
   //   Movers — the biggest 24h price change, so it is a gainers board.
   //   New — coins launched most recently.
-  //   Trending — the coins actually trading most right now, by 24h volume.
+  //   Trending — what the Dexscreener board is trending right now.
+  //   Top — the largest market caps, so the big tokens are always showcased
+  //         (Trending no longer surfaces them, because it is the board).
   // `rank` (and then `id`) breaks ties so a wall of equal-scoring coins still has
   // a stable order to permute.
   // A single-token wall is not a ranking, it is a body of work: every clip
@@ -103,11 +104,13 @@ export async function GET(req: NextRequest) {
     ? [{ createdAt: "desc" as const }, { id: "asc" as const }]
     : sort === "new"
       ? [{ coin: { launchedAt: "desc" as const } }, { id: "asc" as const }]
-      : sort === "trending"
-        ? [{ coin: { volume24hSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
-        : sort === "movers"
-          ? [{ coin: { change24hPct: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
-          : [{ rank: "desc" as const }, { id: "asc" as const }];
+      : sort === "top"
+        ? [{ coin: { marketCapSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+        : sort === "trending"
+          ? [{ coin: { volume24hSol: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+          : sort === "movers"
+            ? [{ coin: { change24hPct: "desc" as const } }, { rank: "desc" as const }, { id: "asc" as const }]
+            : [{ rank: "desc" as const }, { id: "asc" as const }];
 
   // SOL/USD rides along on every feed response (the client prices cards in USD),
   // and solUsd() is cached for 60s, so reading it here costs nothing.
@@ -299,11 +302,11 @@ export async function GET(req: NextRequest) {
     // clip that was appended.
     total = Math.max(total, ids.length);
 
-    // New, Movers and Trending are ranked rails: the order *is* the meaning
-    // ("the latest launches", "the biggest movers", "the most traded"), so the
-    // shuffle is skipped and the pool's own order stands. Every other rail
-    // permutes, because its order carries no signal a viewer reads.
-    const ranked = sort === "new" || sort === "movers" || sort === "trending";
+    // New, Movers, Trending and Top are ranked rails: the order *is* the meaning
+    // ("the latest launches", "the biggest movers", "what is trending", "the
+    // biggest caps"), so the shuffle is skipped and the pool's own order stands.
+    // Every other rail permutes, because its order carries no signal a viewer reads.
+    const ranked = sort === "new" || sort === "movers" || sort === "trending" || sort === "top";
     const seq = ranked
       ? ids.map((id) => ({ id }))
       : seededShuffle(ids.map((id) => ({ id })), seed);

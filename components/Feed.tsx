@@ -21,16 +21,18 @@ import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, Vol
 import { LiveDot, Sparkline } from "./PriceTicker";
 import { Mascot } from "./Mascots";
 
-type Sort = "movers" | "new" | "trending";
+type Sort = "movers" | "new" | "trending" | "top";
 type Scope = "all" | "following";
 
 const SORTS: { key: Sort; label: string; hint: string }[] = [
   // The hint is what the rail *means*, since a one-word label can't carry it.
-  // Movers is a price-change board, not "popular"; New is new *tokens*, not new
-  // clips; Trending is what is actually trading right now, not "best".
+  // Top is the biggest caps, not "best"; Movers is a price-change board, not
+  // "popular"; New is new *tokens*, not new clips; Trending is the Dexscreener
+  // board — what the market is trading right now, not "best".
+  { key: "top", label: "Top", hint: "biggest market caps" },
   { key: "movers", label: "Movers", hint: "biggest price moves in 24h" },
   { key: "new", label: "New", hint: "tokens launched in the last hour" },
-  { key: "trending", label: "Trending", hint: "most traded in the last 24h" },
+  { key: "trending", label: "Trending", hint: "what Dexscreener is trending" },
 ];
 
 /**

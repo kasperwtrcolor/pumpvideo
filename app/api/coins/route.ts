@@ -22,15 +22,15 @@ const NEW_WINDOW_MS = 60 * 60_000;
 const TRENDING_FRESH_MS = 2 * 60 * 60_000;
 
 /**
- * GET /api/coins?sort=movers|new|trending|clips&limit=24&offset=0&q=dog&graduated=0
+ * GET /api/coins?sort=top|movers|new|trending|clips&limit=24&offset=0&q=dog&graduated=0
  * Browsable coin index — the "Coins" tab.
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  // Legacy aliases for renamed rails; see the feed route.
+  // Legacy alias for the renamed rail: "hot" was Movers' old name. "top" is a
+  // real sort again — the biggest market caps — so it is not remapped.
   const rawSort = sp.get("sort");
-  const sort =
-    rawSort === "hot" ? "movers" : rawSort === "top" ? "trending" : rawSort || "movers";
+  const sort = rawSort === "hot" ? "movers" : rawSort || "top";
   const limit = Math.min(60, Math.max(1, Number(sp.get("limit")) || 24));
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const q = (sp.get("q") || "").trim();
@@ -46,13 +46,15 @@ export async function GET(req: NextRequest) {
   const orderBy: Prisma.CoinOrderByWithRelationInput[] =
     sort === "new"
       ? [{ launchedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "asc" }]
-      : sort === "trending"
-        ? [{ volume24hSol: "desc" }, { id: "asc" }]
-        : sort === "clips"
-          ? [{ clips: { _count: "desc" } }, { id: "asc" }]
-          : sort === "movers"
-            ? [{ change24hPct: "desc" }, { id: "asc" }]
-            : [{ marketCapSol: "desc" }, { id: "asc" }];
+      : sort === "top"
+        ? [{ marketCapSol: "desc" }, { id: "asc" }]
+        : sort === "trending"
+          ? [{ volume24hSol: "desc" }, { id: "asc" }]
+          : sort === "clips"
+            ? [{ clips: { _count: "desc" } }, { id: "asc" }]
+            : sort === "movers"
+              ? [{ change24hPct: "desc" }, { id: "asc" }]
+              : [{ marketCapSol: "desc" }, { id: "asc" }];
 
   const filters: Prisma.CoinWhereInput[] = [];
   if (graduatedOnly) filters.push({ complete: true });
