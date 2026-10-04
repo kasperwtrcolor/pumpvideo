@@ -190,20 +190,23 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  // A real clip supersedes the art-only placeholder for the same token.
+  // A user's clip supersedes every non-user clip for the same token.
   //
-  // Every freshly-ingested token gets one placeholder clip (videoUrl null) so it
-  // can appear at all; that is the right default for a token nobody has clipped.
-  // But the moment someone posts a real video for that token, the placeholder is
-  // strictly worse content for the same coin — showing both puts one token on
-  // the wall twice, once as a still art card and once as the clip someone
-  // actually made. Uploads already delete the placeholder (app/api/clips), so
-  // this set is normally redundant; it is enforced here too because "never show
-  // it" has to hold even if a write path is ever missed. Small: only coins with
-  // a real clip (today, the seeded + uploaded ones).
-  const realClipCoinIds = (
+  // Two kinds of clip are not "real user" content: the art-only placeholder a
+  // freshly-ingested token gets (videoUrl null, author "unclaimed"), and the
+  // seeded catalogue clip (a rendered video, also author "unclaimed"). Both are
+  // our content, not someone's. The moment a real uploader posts a clip for a
+  // token, their clip is what should show — never ours, and never both at once
+  // (which is what put @unclaimed and a user's clip back-to-back on the wall).
+  //
+  // So: any clip with an uploader (uploadedById set) is a user clip; for a coin
+  // that has one, hide every clip without an uploader. Enforced here at read
+  // time, so it holds for placeholders AND seeds regardless of write paths, and
+  // on every rail and the single-token wall. Small set: only coins with a real
+  // upload.
+  const userClipCoinIds = (
     await prisma.clip.findMany({
-      where: { ready: true, videoUrl: { not: null } },
+      where: { ready: true, uploadedById: { not: null } },
       select: { coinId: true },
       distinct: ["coinId"],
     })
@@ -248,10 +251,11 @@ export async function GET(req: NextRequest) {
     return {
       ready: true,
       coin,
-      // Drop an art-only placeholder when its coin has a real clip (see
-      // realClipCoinIds above) — user videos take precedence over the art card.
-      ...(realClipCoinIds.length
-        ? { NOT: { videoUrl: null, coinId: { in: realClipCoinIds } } }
+      // For a coin with a real user clip, hide every non-user clip (placeholders
+      // and seeded clips alike) — see userClipCoinIds above. User videos take
+      // precedence, on every rail and on the single-token wall.
+      ...(userClipCoinIds.length
+        ? { NOT: { uploadedById: null, coinId: { in: userClipCoinIds } } }
         : {}),
       ...(since ? { createdAt: { lte: since } } : {}),
       ...social,
