@@ -794,17 +794,17 @@ body {
 /* The receding floor the copy stands on. */
 .landing-grid {
   position: absolute;
-  inset: 52% -20% 0 -20%;
+  inset: 46% -20% 0 -20%;
   z-index: 0;
   pointer-events: none;
   background-image:
-    repeating-linear-gradient(to right, rgba(34, 224, 106, 0.16) 0 1px, transparent 1px 72px),
-    repeating-linear-gradient(to top, rgba(34, 224, 106, 0.16) 0 1px, transparent 1px 72px);
+    repeating-linear-gradient(to right, rgba(34, 224, 106, 0.2) 0 1px, transparent 1px 72px),
+    repeating-linear-gradient(to top, rgba(34, 224, 106, 0.2) 0 1px, transparent 1px 72px);
   transform: perspective(460px) rotateX(63deg);
   transform-origin: top center;
-  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 72%);
-  mask-image: linear-gradient(to bottom, #000, transparent 72%);
-  opacity: 0.55;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 76%);
+  mask-image: linear-gradient(to bottom, #000, transparent 76%);
+  opacity: 0.75;
 }
 
 /* The brand initial, oversized and almost invisible, behind the copy. */

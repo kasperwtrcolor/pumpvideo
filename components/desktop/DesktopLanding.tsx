@@ -533,6 +533,18 @@ function sideAt(t: number): number {
   return SIDE[i] + (SIDE[j] - SIDE[i]) * f;
 }
 
+/**
+ * A 24h move, compacted. Memecoins really do print four-digit percentages, and
+ * `477313.0%` is both unreadable and wider than its card — so anything past a
+ * thousand is summarised the way a trader would say it out loud.
+ */
+function fmtPct(p: number): string {
+  const a = Math.abs(p);
+  if (a >= 1_000_000) return `${(a / 1_000_000).toFixed(1)}M`;
+  if (a >= 1000) return `${(a / 1000).toFixed(a >= 10_000 ? 0 : 1)}K`;
+  return a.toFixed(1);
+}
+
 const SECTIONS = [
   { key: "what", label: "What it is" },
   { key: "feed", label: "The feed" },
@@ -645,7 +657,7 @@ function CoinChip({ reel }: { reel: Reel }) {
       </div>
       <div className="flex flex-col items-end gap-1">
         <span className={`text-[15px] font-black tabular-nums ${up ? "text-up" : "text-down"}`}>
-          {up ? "↑" : "↓"} {Math.abs(reel.pct).toFixed(1)}%
+          {up ? "↑" : "↓"} {fmtPct(reel.pct)}%
         </span>
         <svg viewBox="0 0 84 36" className={`h-7 w-[84px] ${up ? "text-up" : "text-down"}`} aria-hidden>
           <path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -688,7 +700,7 @@ function Phone({ reels, index }: { reels: Reel[]; index: number }) {
                   </div>
                   {r.symbol ? (
                     <div className={`mt-0.5 text-[11px] font-bold ${r.pct >= 0 ? "text-up" : "text-down"}`}>
-                      {r.pct >= 0 ? "↑" : "↓"} {Math.abs(r.pct).toFixed(1)}%
+                      {r.pct >= 0 ? "↑" : "↓"} {fmtPct(r.pct)}%
                     </div>
                   ) : null}
                 </div>
