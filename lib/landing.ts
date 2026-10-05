@@ -27,6 +27,14 @@ const MAX_VIDEOS = 2;
 /** Enough art to overfill each of the three columns several times over. */
 const ART_TILES = 60;
 
+/**
+ * Moving tiles that ship with the app, used to top the wall up when the
+ * catalogue has fewer live clips than the wall wants. Without them a fresh
+ * deploy paints a wall of nothing but stills — the wall is the first thing
+ * anyone sees, and a still wall undersells a video product.
+ */
+const BUNDLED_VIDEOS = ["/landing/1.mp4", "/landing/2.mp4"];
+
 export async function landingTiles(): Promise<LandingTile[]> {
   const [coins, clips] = await Promise.all([
     // Largest first: recognition is the point of the wall, and the bigger tokens
@@ -50,8 +58,19 @@ export async function landingTiles(): Promise<LandingTile[]> {
     const art = artUrl(c.imageUrl);
     if (art) tiles.push({ art, video: null });
   }
+
+  let videos = 0;
   for (const c of clips) {
-    if (c.videoUrl) tiles.push({ art: null, video: c.videoUrl });
+    if (c.videoUrl) {
+      tiles.push({ art: null, video: c.videoUrl });
+      videos++;
+    }
+  }
+  // Top up from the shipped clips, so the wall is always moving.
+  for (const src of BUNDLED_VIDEOS) {
+    if (videos >= MAX_VIDEOS) break;
+    tiles.push({ art: null, video: src });
+    videos++;
   }
   return tiles;
 }

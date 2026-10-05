@@ -282,6 +282,9 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
   if (!open) return null;
 
   const chip = reels[0] ?? slides[0];
+  // The strip leads with anything that moves — a wall of stills is the wrong
+  // first impression for a video product, and the catalogue's stills are many.
+  const strip = [...tiles.filter((t) => t.video), ...tiles.filter((t) => !t.video)].slice(0, 28);
 
   return (
     <div className="landing landing-deck fixed inset-0 z-[100] flex flex-col text-ink">
@@ -474,7 +477,7 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
             {tiles.length > 0 && (
               <div className="marquee mt-9 -mx-6 lg:-mx-16">
                 <div className="marquee-track">
-                  {[...tiles, ...tiles].slice(0, 28).map((tile, i) => (
+                  {strip.map((tile, i) => (
                     <div
                       key={i}
                       className="mx-1.5 h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-line bg-gradient-to-br from-panel2 via-panel to-bg"
