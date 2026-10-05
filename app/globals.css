@@ -611,8 +611,12 @@ body {
 }
 .phone {
   position: relative;
-  width: 296px;
-  height: 612px;
+  /* Height is viewport-aware: the hero is one full-viewport snap section now, and
+     a section taller than the screen traps the reader inside it, because the only
+     valid snap position is its start edge. Shrinking the device keeps it fitting. */
+  width: auto;
+  height: min(612px, 66vh);
+  aspect-ratio: 296 / 612;
   border-radius: 46px;
   padding: 12px;
   background: linear-gradient(160deg, #3b3b44, #17171d 42%, #0b0b0e);

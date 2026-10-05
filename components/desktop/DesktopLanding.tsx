@@ -116,6 +116,40 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
     };
   }, []);
 
+  /* ---- the snap deck ---------------------------------------------------- */
+
+  const scroller = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+
+  /** Advance to a section — the same move a wheel, swipe or key press makes. */
+  const go = useCallback((i: number) => {
+    const el = scroller.current?.querySelectorAll<HTMLElement>("[data-snap]")[i];
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  /** Which section is showing, derived from scroll position (no observers). */
+  const onScroll = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const i = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
+    setActive(Math.max(0, Math.min(SECTIONS.length - 1, i)));
+  }, []);
+
+  // Keyboard is how a desktop reader actually drives a deck this shape.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown" || e.key === "PageDown") {
+        e.preventDefault();
+        go(active + 1);
+      } else if (e.key === "ArrowUp" || e.key === "PageUp") {
+        e.preventDefault();
+        go(active - 1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, go]);
+
   // Supplied reels lead; the app's own freshest clips fill any room left. If
   // neither exists (a very fresh deploy), the welcome wall's art stands in so
   // the phone is never a blank slab.
@@ -136,9 +170,9 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
   if (!open) return null;
 
   return (
-    <div className="landing fixed inset-0 z-[100] overflow-y-auto bg-bg text-ink">
+    <div className="landing fixed inset-0 z-[100] flex flex-col bg-bg text-ink">
       {/* top bar */}
-      <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-line/60 bg-bg/80 px-5 backdrop-blur">
+      <div className="z-20 flex h-14 shrink-0 items-center justify-between border-b border-line/60 bg-bg/80 px-5 backdrop-blur">
         <LogoLockup size={22} />
         <div className="flex items-center gap-2">
           <a
@@ -160,7 +194,18 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
       </div>
 
       {/* hero */}
-      <section className="mx-auto grid max-w-[1240px] grid-cols-1 items-center gap-10 px-6 pb-16 pt-12 lg:grid-cols-[1.05fr_0.95fr] lg:pb-24 lg:pt-20">
+      {/* One section per swipe. `snap-y snap-mandatory` makes a wheel notch or
+          a thumb flick land exactly on the next section rather than halfway
+          between two — the deck advances one element at a time. */}
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        className="no-scrollbar relative min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto"
+      >
+      <section
+        data-snap
+        className="mx-auto grid min-h-full max-w-[1240px] snap-start grid-cols-1 items-center gap-10 px-6 pb-10 pt-10 lg:grid-cols-[1.05fr_0.95fr] lg:pb-14 lg:pt-14"
+      >
         <div>
           <span className="riser inline-block rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-accent">
             Pemp · a clip is a coin
@@ -195,12 +240,12 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
             >
               Open the feed
             </button>
-            <a
-              href="#how"
+            <button
+              onClick={() => go(1)}
               className="press rounded-2xl border border-line bg-panel px-6 py-3.5 text-[15px] font-bold text-ink hover:bg-panel2"
             >
               How it works
-            </a>
+            </button>
           </div>
 
           {stats && (
@@ -219,7 +264,11 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
       </section>
 
       {/* how it works */}
-      <section id="how" className="border-t border-line bg-panel/30 py-20">
+      <section
+        id="how"
+        data-snap
+        className="flex min-h-full snap-start flex-col justify-center border-t border-line bg-panel/30 py-20"
+      >
         <div className="mx-auto max-w-[1100px] px-6">
           <Reveal>
             <h2 className="text-[clamp(32px,4vw,56px)] font-black uppercase leading-[0.95] tracking-tight">
@@ -241,7 +290,10 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
       </section>
 
       {/* the money */}
-      <section className="py-20">
+      <section
+        data-snap
+        className="flex min-h-full snap-start flex-col justify-center py-20"
+      >
         <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-center gap-12 px-6 lg:grid-cols-2">
           <Reveal>
             <h2 className="text-[clamp(32px,4vw,56px)] font-black uppercase leading-[0.95] tracking-tight">
@@ -286,7 +338,10 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
       </section>
 
       {/* wall marquee */}
-      <section className="overflow-hidden border-t border-line py-16">
+      <section
+        data-snap
+        className="flex min-h-full snap-start flex-col justify-center overflow-hidden border-t border-line py-16"
+      >
         <Reveal>
           <h2 className="mb-8 text-center text-[13px] font-black uppercase tracking-[0.3em] text-muted">
             live on the wall right now
@@ -312,7 +367,10 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
       </section>
 
       {/* final cta */}
-      <section className="border-t border-line py-24 text-center">
+      <section
+        data-snap
+        className="flex min-h-full snap-start flex-col justify-center border-t border-line py-24 text-center"
+      >
         <Reveal>
           <h2 className="mx-auto max-w-[16ch] text-[clamp(36px,6vw,80px)] font-black uppercase leading-[0.92] tracking-tight">
             The feed is <span className="text-accent">open.</span>
@@ -350,11 +408,43 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
           </Link>
         </div>
       </section>
+      </div>
+
+      {/* The map of the deck: a dot per section, plus the current label. Shown
+          only on wide screens, where there is room beside the content. */}
+      <div className="pointer-events-none absolute bottom-0 right-4 top-14 z-20 hidden flex-col items-center justify-center gap-2.5 xl:flex">
+        {SECTIONS.map((s, i) => (
+          <button
+            key={s.key}
+            onClick={() => go(i)}
+            aria-label={`Go to ${s.label}`}
+            aria-current={i === active}
+            className={`pointer-events-auto w-1.5 rounded-full transition-all ${
+              i === active ? "h-7 bg-accent" : "h-1.5 bg-ink/25 hover:bg-ink/50"
+            }`}
+          />
+        ))}
+      </div>
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 text-[10px] font-black uppercase tracking-[0.3em] text-muted">
+        {SECTIONS[active]?.label ?? ""}
+      </div>
     </div>
   );
 }
 
 /* ---------- pieces ---------- */
+
+/**
+ * The deck, in order. Each entry is one section and one swipe, and the label is
+ * what the progress marker reads out.
+ */
+const SECTIONS = [
+  { key: "hero", label: "What it is" },
+  { key: "how", label: "How it works" },
+  { key: "money", label: "The money" },
+  { key: "wall", label: "The wall" },
+  { key: "open", label: "Open" },
+] as const;
 
 const STEPS = [
   {
