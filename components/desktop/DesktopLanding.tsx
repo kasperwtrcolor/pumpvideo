@@ -127,12 +127,23 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  /** Which section is showing, derived from scroll position (no observers). */
+  /** Which section is showing — the one whose start edge is nearest the scroll. */
   const onScroll = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
-    const i = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
-    setActive(Math.max(0, Math.min(SECTIONS.length - 1, i)));
+    // Sections are not all the same height, so dividing the scroll offset by the
+    // viewport height mislabels the deck the moment any section is taller than a
+    // screen. Nearest start edge is the honest answer.
+    let best = 0;
+    let bestD = Infinity;
+    el.querySelectorAll<HTMLElement>("[data-snap]").forEach((s, i) => {
+      const d = Math.abs(s.offsetTop - el.scrollTop);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    setActive(best);
   }, []);
 
   // Keyboard is how a desktop reader actually drives a deck this shape.
@@ -204,14 +215,14 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
       >
       <section
         data-snap
-        className="mx-auto grid min-h-full max-w-[1240px] snap-start grid-cols-1 items-center gap-10 px-6 pb-10 pt-10 lg:grid-cols-[1.05fr_0.95fr] lg:pb-14 lg:pt-14"
+        className="mx-auto grid min-h-full max-w-[1240px] snap-start grid-cols-1 items-center gap-8 px-6 pb-8 pt-8 lg:grid-cols-[1.05fr_0.95fr] lg:py-10"
       >
         <div>
           <span className="riser inline-block rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-accent">
             Pemp · a clip is a coin
           </span>
 
-          <h1 className="mt-6 text-[clamp(44px,7vw,92px)] font-black uppercase leading-[0.9] tracking-[-0.03em]">
+          <h1 className="mt-5 text-[clamp(36px,5.6vw,76px)] font-black uppercase leading-[0.9] tracking-[-0.03em]">
             <span className="riser block" style={{ animationDelay: "40ms" }}>
               Every clip
             </span>
@@ -233,7 +244,7 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
             a clip you posted.
           </p>
 
-          <div className="riser mt-8 flex flex-wrap items-center gap-3" style={{ animationDelay: "360ms" }}>
+          <div className="riser mt-6 flex flex-wrap items-center gap-3" style={{ animationDelay: "360ms" }}>
             <button
               onClick={enter}
               className="press rounded-2xl burn-gradient px-6 py-3.5 text-[15px] font-black tracking-wide text-black"
@@ -249,7 +260,7 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
           </div>
 
           {stats && (
-            <div className="riser mt-10 flex flex-wrap gap-x-10 gap-y-4" style={{ animationDelay: "440ms" }}>
+            <div className="riser mt-7 flex flex-wrap gap-x-10 gap-y-3" style={{ animationDelay: "440ms" }}>
               <Stat label="coins" value={fmtCount(stats.coins)} />
               <Stat label="clips" value={fmtCount(stats.clips)} />
               <Stat label="traders" value={fmtCount(stats.traders)} />
