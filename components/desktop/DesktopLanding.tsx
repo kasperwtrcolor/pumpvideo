@@ -1,0 +1,433 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
+import type { LandingTile } from "@/lib/landing";
+import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
+import { LogoLockup } from "../Logo";
+import { MascotStack } from "../Mascots";
+import { XIcon } from "../Icons";
+import { X_HANDLE, X_URL } from "@/lib/social";
+import { fmtCount, fmtSol } from "@/lib/format";
+import type { FeedItemDTO } from "@/lib/types";
+
+type Reel = { video: string | null; art: string | null; name: string; symbol: string; pct: number };
+
+/**
+ * The desktop landing.
+ *
+ * The product is a vertical video feed, so the landing shows one: a 3D phone on
+ * a hero, its screen living-scrolling the app's own clips the way the real feed
+ * does. Everything on the page is the catalogue's own art and numbers — the wall
+ * behind the copy and the reels inside the phone are the tokens we are actually
+ * serving, because a landing that lies about what the app is would be worse than
+ * no landing.
+ */
+export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
+  const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
+  const enter = useCallback(() => setWelcomeOpen(false), []);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [stats, setStats] = useState<{ coins: number; clips: number; traders: number; rewardsPaidSol: number } | null>(null);
+
+  // The reels are the freshest clips the feed would serve — the same payload the
+  // app renders, just shown to a visitor who has not opened it yet.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/feed?limit=6", { cache: "no-store" });
+        const j = (await r.json()) as { items?: FeedItemDTO[] };
+        if (!alive) return;
+        const items = (j.items ?? []).filter((it) => it.videoUrl || it.coin.imageUrl);
+        setReels(
+          items.map((it) => ({
+            video: it.videoUrl,
+            art: it.coin.imageUrl,
+            name: it.coin.name,
+            symbol: it.coin.symbol,
+            pct: it.coin.change24hPct,
+          })),
+        );
+      } catch {
+        /* the phone falls back to the wall's tiles below */
+      }
+    })();
+    (async () => {
+      try {
+        const r = await fetch("/api/stats", { cache: "no-store" });
+        const j = await r.json();
+        if (alive) setStats(j);
+      } catch {
+        /* the stat strip simply hides */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Fall back to the welcome wall's art when the feed came back empty (a very
+  // fresh deploy), so the phone is never a blank slab.
+  const slides: Reel[] =
+    reels.length > 0
+      ? reels
+      : tiles.slice(0, 6).map((t) => ({ video: t.video, art: t.art, name: "Pemp", symbol: "PEMP", pct: 0 }));
+
+  if (!open) return null;
+
+  return (
+    <div className="landing fixed inset-0 z-[100] overflow-y-auto bg-bg text-ink">
+      {/* top bar */}
+      <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-line/60 bg-bg/80 px-5 backdrop-blur">
+        <LogoLockup size={22} />
+        <div className="flex items-center gap-2">
+          <a
+            href={X_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Follow ${X_HANDLE} on X`}
+            className="press flex h-9 w-9 items-center justify-center rounded-full border border-line bg-panel text-muted hover:text-ink"
+          >
+            <XIcon className="h-4 w-4" />
+          </a>
+          <button
+            onClick={enter}
+            className="press rounded-full burn-gradient px-4 py-2 text-[13px] font-black text-black"
+          >
+            Open the app
+          </button>
+        </div>
+      </div>
+
+      {/* hero */}
+      <section className="mx-auto grid max-w-[1240px] grid-cols-1 items-center gap-10 px-6 pb-16 pt-12 lg:grid-cols-[1.05fr_0.95fr] lg:pb-24 lg:pt-20">
+        <div>
+          <span className="riser inline-block rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-accent">
+            Pemp · a clip is a coin
+          </span>
+
+          <h1 className="mt-6 text-[clamp(44px,7vw,92px)] font-black uppercase leading-[0.9] tracking-[-0.03em]">
+            <span className="riser block" style={{ animationDelay: "40ms" }}>
+              Every clip
+            </span>
+            <span className="riser block" style={{ animationDelay: "120ms" }}>
+              is a coin
+            </span>
+            <span className="riser block text-accent" style={{ animationDelay: "200ms" }}>
+              you can buy.
+            </span>
+          </h1>
+
+          <p
+            className="riser mt-6 max-w-[46ch] text-[16px] leading-relaxed text-muted"
+            style={{ animationDelay: "280ms" }}
+          >
+            A vertical feed where the video <em className="not-italic text-ink">is</em> the market.
+            Swipe the wall, and every clip carries its own coin — buy it straight from the frame,
+            with a custodial-free Solana wallet, and get paid 1% of every buy that comes through
+            a clip you posted.
+          </p>
+
+          <div className="riser mt-8 flex flex-wrap items-center gap-3" style={{ animationDelay: "360ms" }}>
+            <button
+              onClick={enter}
+              className="press rounded-2xl burn-gradient px-6 py-3.5 text-[15px] font-black tracking-wide text-black"
+            >
+              Open the feed
+            </button>
+            <a
+              href="#how"
+              className="press rounded-2xl border border-line bg-panel px-6 py-3.5 text-[15px] font-bold text-ink hover:bg-panel2"
+            >
+              How it works
+            </a>
+          </div>
+
+          {stats && (
+            <div className="riser mt-10 flex flex-wrap gap-x-10 gap-y-4" style={{ animationDelay: "440ms" }}>
+              <Stat label="coins" value={fmtCount(stats.coins)} />
+              <Stat label="clips" value={fmtCount(stats.clips)} />
+              <Stat label="traders" value={fmtCount(stats.traders)} />
+              <Stat label="paid to creators" value={`${fmtSol(stats.rewardsPaidSol)} SOL`} />
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-center">
+          <Phone reels={slides} />
+        </div>
+      </section>
+
+      {/* how it works */}
+      <section id="how" className="border-t border-line bg-panel/30 py-20">
+        <div className="mx-auto max-w-[1100px] px-6">
+          <Reveal>
+            <h2 className="text-[clamp(32px,4vw,56px)] font-black uppercase leading-[0.95] tracking-tight">
+              Watch it. <span className="text-accent">Buy it.</span> In one thumb.
+            </h2>
+          </Reveal>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            {STEPS.map((s, i) => (
+              <Reveal key={s.n} delay={i * 90}>
+                <div className="h-full rounded-3xl border border-line bg-panel p-7">
+                  <div className="text-[44px] font-black leading-none text-accent/30">{s.n}</div>
+                  <h3 className="mt-4 text-[22px] font-black leading-tight">{s.title}</h3>
+                  <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{s.body}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* the money */}
+      <section className="py-20">
+        <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-center gap-12 px-6 lg:grid-cols-2">
+          <Reveal>
+            <h2 className="text-[clamp(32px,4vw,56px)] font-black uppercase leading-[0.95] tracking-tight">
+              Creators get <span className="text-accent">paid.</span>
+            </h2>
+            <p className="mt-5 max-w-[48ch] text-[15px] leading-relaxed text-muted">
+              Every buy carries a 2% app fee. When the buyer came through a clip, another{" "}
+              <span className="font-bold text-ink">1% goes straight to whoever posted it</span> —
+              settled to their own wallet in the same transaction as the swap, not credited later.
+              The number below is summed from fees that actually moved on-chain.
+            </p>
+            <div className="mt-8 rounded-3xl border border-accent/40 bg-accent/10 p-6">
+              <div className="text-[13px] font-bold uppercase tracking-wider text-accent">
+                paid to creators, on-chain
+              </div>
+              <div className="mt-1 text-[clamp(36px,5vw,64px)] font-black leading-none tabular-nums">
+                {stats ? `${fmtSol(stats.rewardsPaidSol)} SOL` : "—"}
+              </div>
+            </div>
+            <p className="mt-4 text-[12px] text-muted">
+              Memecoins are volatile and can go to zero. Pemp never holds your keys or your funds.
+            </p>
+          </Reveal>
+
+          <Reveal delay={120}>
+            <div className="rounded-3xl border border-line bg-panel p-7">
+              <div className="text-[13px] font-bold uppercase tracking-wider text-muted">
+                where a buy goes
+              </div>
+              <div className="mt-5 space-y-4">
+                <FeeRow pct="97%" label="to the swap · you get the tokens" tone="ink" />
+                <FeeRow pct="2%" label="app fee · keeps the lights on" tone="muted" />
+                <FeeRow pct="1%" label="to the clip's creator · same transaction" tone="accent" />
+              </div>
+              <div className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-muted">
+                One tap builds the swap, quotes it on Jupiter, then <em className="not-italic text-ink">you</em>{" "}
+                sign it in your wallet. The private key never leaves your device.
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* wall marquee */}
+      <section className="overflow-hidden border-t border-line py-16">
+        <Reveal>
+          <h2 className="mb-8 text-center text-[13px] font-black uppercase tracking-[0.3em] text-muted">
+            live on the wall right now
+          </h2>
+        </Reveal>
+        <div className="marquee">
+          <div className="marquee-track">
+            {[...tiles, ...tiles].slice(0, 28).map((t, i) => (
+              <div
+                key={i}
+                className="mx-1.5 h-28 w-28 shrink-0 overflow-hidden rounded-2xl border border-line bg-gradient-to-br from-panel2 via-panel to-bg"
+              >
+                {t.video ? (
+                  <video src={t.video} muted loop autoPlay playsInline className="h-full w-full object-cover" />
+                ) : t.art ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={t.art} alt="" loading="lazy" className="h-full w-full object-cover" />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* final cta */}
+      <section className="border-t border-line py-24 text-center">
+        <Reveal>
+          <h2 className="mx-auto max-w-[16ch] text-[clamp(36px,6vw,80px)] font-black uppercase leading-[0.92] tracking-tight">
+            The feed is <span className="text-accent">open.</span>
+          </h2>
+          <div className="mt-8 flex items-center justify-center gap-3">
+            <button
+              onClick={enter}
+              className="press rounded-2xl burn-gradient px-8 py-4 text-[16px] font-black tracking-wide text-black"
+            >
+              Start watching
+            </button>
+          </div>
+          <a
+            href={X_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 inline-flex items-center gap-2 text-[13px] font-bold text-muted hover:text-ink"
+          >
+            <MascotStack size={24} />
+            <XIcon className="h-3.5 w-3.5" /> Follow {X_HANDLE}
+          </a>
+        </Reveal>
+        <div className="mt-14 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[12px] text-muted">
+          <Link href="/coins" className="hover:text-ink">
+            Coins
+          </Link>
+          <Link href="/upload" className="hover:text-ink">
+            Post a clip
+          </Link>
+          <Link href="/legal/terms" className="hover:text-ink">
+            Terms
+          </Link>
+          <Link href="/legal/privacy" className="hover:text-ink">
+            Privacy
+          </Link>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ---------- pieces ---------- */
+
+const STEPS = [
+  {
+    n: "01",
+    title: "Swipe a wall of clips",
+    body: "A vertical feed of short videos, ranked by what is actually moving. Watching is the whole interface — no tables, no charts to decode.",
+  },
+  {
+    n: "02",
+    title: "Every clip has a coin",
+    body: "Each clip is bound to a token on Solana. The market cap, the move, the holders — all of it lives on the frame you are looking at.",
+  },
+  {
+    n: "03",
+    title: "Buy from the video",
+    body: "One tap quotes the swap and hands it to your own wallet to sign. Post your own clip and you take 1% of every buy that comes through it.",
+  },
+] as const;
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[clamp(22px,2.4vw,30px)] font-black leading-none tabular-nums">{value}</div>
+      <div className="mt-1 text-[11px] font-bold uppercase tracking-wider text-muted">{label}</div>
+    </div>
+  );
+}
+
+function FeeRow({ pct, label, tone }: { pct: string; label: string; tone: "ink" | "muted" | "accent" }) {
+  const color = tone === "accent" ? "text-accent" : tone === "ink" ? "text-ink" : "text-muted";
+  return (
+    <div className="flex items-baseline gap-4">
+      <span className={`w-[4.5rem] shrink-0 text-[28px] font-black leading-none tabular-nums ${color}`}>
+        {pct}
+      </span>
+      <span className="text-[14px] leading-snug text-muted">{label}</span>
+    </div>
+  );
+}
+
+/** Reveal-on-scroll: adds `is-in` the first time the element enters the viewport. */
+function Reveal({
+  children,
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  delay?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          setShown(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.15 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={`reveal ${shown ? "is-in" : ""}`}
+      style={{ transitionDelay: `${delay}ms` }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The 3D phone. A CSS perspective tilt holding a screen that auto-advances
+ * through the reels on a loop — the feed's own gesture, performed for anyone who
+ * has not opened it yet.
+ */
+function Phone({ reels }: { reels: Reel[] }) {
+  const [i, setI] = useState(0);
+  const n = Math.max(1, reels.length);
+
+  useEffect(() => {
+    if (n < 2) return;
+    const t = setInterval(() => setI((v) => (v + 1) % n), 3200);
+    return () => clearInterval(t);
+  }, [n]);
+
+  return (
+    <div className="phone-wrap">
+      <div className="phone">
+        <div className="phone-screen">
+          <div
+            className="reel-track"
+            style={{ transform: `translateY(-${i * 100}%)` }}
+          >
+            {reels.map((r, k) => (
+              <div key={k} className="reel-slide">
+                {r.video ? (
+                  <video src={r.video} muted loop autoPlay playsInline className="h-full w-full object-cover" />
+                ) : r.art ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={r.art} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-br from-accent2/40 via-panel2 to-panel" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20" />
+                <div className="absolute inset-x-0 bottom-0 p-3">
+                  <div className="text-[13px] font-black text-white text-glow">
+                    {r.name} <span className="text-white/60">${r.symbol}</span>
+                  </div>
+                  <div
+                    className={`mt-0.5 text-[11px] font-bold ${
+                      r.pct >= 0 ? "text-up" : "text-down"
+                    }`}
+                  >
+                    {r.pct >= 0 ? "↑" : "↓"} {Math.abs(r.pct).toFixed(1)}%
+                  </div>
+                </div>
+                <div className="absolute bottom-24 right-2.5 flex flex-col gap-3">
+                  {[0, 1, 2].map((d) => (
+                    <span key={d} className="h-6 w-6 rounded-full border border-white/40 bg-black/30" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="phone-island" />
+        </div>
+      </div>
+    </div>
+  );
+}

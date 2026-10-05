@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { AppHeader } from "@/components/AppHeader";
-import { BottomNav } from "@/components/BottomNav";
+import { Shell } from "@/components/Shell";
 import { TraderProvider } from "@/components/TraderProvider";
 import { PrivyRoot } from "@/components/PrivyRoot";
 import { AuthBridge } from "@/components/AuthBridge";
@@ -60,13 +59,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <AuthBridge>
             <TraderProvider initialSolUsd={usd}>
               <PrivySessionSync />
-              {/* `relative` anchors AppHeader's overlay mode on the feed, where
-                  it takes no layout space so the video runs to the top edge. */}
-              <div className="relative mx-auto flex h-dvh w-full max-w-[440px] flex-col border-x border-line bg-bg">
-                <AppHeader />
-                <div className="min-h-0 flex-1">{children}</div>
-                <BottomNav />
-              </div>
+              {/* The frame is chosen by viewport in Shell: the phone chrome on a
+                  narrow screen, the wide four-region shell on a desktop. `relative`
+                  anchors AppHeader's overlay mode on the feed, where it takes no
+                  layout space so the video runs to the top edge. */}
+              <Shell>{children}</Shell>
             </TraderProvider>
           </AuthBridge>
         </PrivyRoot>

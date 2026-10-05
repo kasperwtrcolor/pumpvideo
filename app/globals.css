@@ -558,3 +558,121 @@ body {
     opacity: 1;
   }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Desktop landing
+ * ---------------------------------------------------------------------------
+ * The hero copy rises in on load (`.riser`), everything below reveals as it is
+ * scrolled to (`.reveal`), and the phone performs the feed's own gesture. All
+ * three are decorative, so all three stop under reduced-motion.
+ */
+
+.riser {
+  animation: rise-in 700ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 26px, 0);
+  transition:
+    opacity 640ms var(--ease-decelerate),
+    transform 640ms var(--ease-decelerate);
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* The coin wall drifting past — the same art the app serves, in motion. */
+.marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 40s linear infinite;
+}
+@keyframes marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* A phone, tilted. The tilt is the only 3D on the page — no library, just
+   perspective on the wrapper and a rotate on the body. */
+.phone-wrap {
+  perspective: 1500px;
+}
+.phone {
+  position: relative;
+  width: 296px;
+  height: 612px;
+  border-radius: 46px;
+  padding: 12px;
+  background: linear-gradient(160deg, #3b3b44, #17171d 42%, #0b0b0e);
+  box-shadow:
+    0 44px 80px -24px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 90px -12px color-mix(in oklab, var(--color-accent) 30%, transparent);
+  transform: rotateY(-16deg) rotateX(7deg) rotateZ(1.2deg);
+  transform-style: preserve-3d;
+  animation: phone-float 7s ease-in-out infinite;
+}
+@keyframes phone-float {
+  0%,
+  100% {
+    transform: rotateY(-16deg) rotateX(7deg) rotateZ(1.2deg) translateY(0);
+  }
+  50% {
+    transform: rotateY(-13deg) rotateX(5deg) rotateZ(0.6deg) translateY(-14px);
+  }
+}
+.phone-screen {
+  position: absolute;
+  inset: 12px;
+  overflow: hidden;
+  border-radius: 36px;
+  background: #000;
+}
+.phone-island {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 5;
+  height: 26px;
+  width: 92px;
+  transform: translateX(-50%);
+  border-radius: 16px;
+  background: #000;
+}
+.reel-track {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: transform 720ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+.reel-slide {
+  position: relative;
+  flex: 0 0 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .riser,
+  .marquee-track,
+  .phone {
+    animation: none;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
