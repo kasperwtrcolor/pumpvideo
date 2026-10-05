@@ -25,6 +25,14 @@ export function TradePanel({ coin, onTrade }: { coin: CoinDTO | null; onTrade: (
   const { solUsd } = useTrader();
   const [detail, setDetail] = useState<Detail | null>(null);
 
+  /**
+   * Hooks must run on *every* render, so this sits above the `!coin` early
+   * return below. Putting it after would give the first render (no coin yet) one
+   * fewer hook than the next (coin arrived) and React throws — which is exactly
+   * what took the whole route down.
+   */
+  const cap = useTick((coin?.marketCapSol ?? 0) * solUsd);
+
   useEffect(() => {
     if (!coin) {
       setDetail(null);
@@ -58,9 +66,6 @@ export function TradePanel({ coin, onTrade }: { coin: CoinDTO | null; onTrade: (
 
   const up = coin.change24hPct >= 0;
   const trades = detail?.trades ?? [];
-  // The cap flashes on every live move, so the panel reads as ticking rather
-  // than as a static label that happens to be right.
-  const cap = useTick(coin.marketCapSol * solUsd);
 
   return (
     <aside className="no-scrollbar w-[340px] shrink-0 overflow-y-auto border-l border-line bg-panel/40">
