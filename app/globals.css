@@ -791,6 +791,15 @@ body {
     linear-gradient(180deg, #061710 0%, #04100b 58%, #020805 100%);
 }
 
+/* The welcome screen's first panel, and the whole of it on a phone.
+   `vh` first, then `dvh`: a browser that understands the dynamic unit gets a
+   height that tracks the URL bar, and one that does not keeps the `vh` it
+   already had rather than collapsing to its content. */
+.hero-screen {
+  height: 100vh;
+  height: 100dvh;
+}
+
 /* The receding floor the copy stands on. */
 .landing-grid {
   position: absolute;
