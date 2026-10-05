@@ -772,3 +772,110 @@ body {
     -webkit-text-fill-color: var(--color-accent);
   }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Desktop landing — the launch-film deck
+ * ---------------------------------------------------------------------------
+ * The ground, the ghost and the numbered labels of the launch film. Text panels
+ * are transparent: a single phone sits on a stage *behind* the scroller and
+ * travels across it as the deck advances, so the sections scroll past one
+ * device rather than each carrying its own. Every transform here is applied by
+ * JS from scroll position and is skipped entirely under reduced-motion.
+ */
+
+.landing-deck {
+  background:
+    radial-gradient(120% 80% at 10% -10%, color-mix(in oklab, var(--color-accent) 14%, transparent), transparent 58%),
+    radial-gradient(90% 70% at 96% 104%, color-mix(in oklab, var(--color-accent2) 12%, transparent), transparent 60%),
+    linear-gradient(180deg, #061710 0%, #04100b 58%, #020805 100%);
+}
+
+/* The receding floor the copy stands on. */
+.landing-grid {
+  position: absolute;
+  inset: 52% -20% 0 -20%;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(to right, rgba(34, 224, 106, 0.16) 0 1px, transparent 1px 72px),
+    repeating-linear-gradient(to top, rgba(34, 224, 106, 0.16) 0 1px, transparent 1px 72px);
+  transform: perspective(460px) rotateX(63deg);
+  transform-origin: top center;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 72%);
+  mask-image: linear-gradient(to bottom, #000, transparent 72%);
+  opacity: 0.55;
+}
+
+/* The brand initial, oversized and almost invisible, behind the copy. */
+.deck-ghost {
+  position: absolute;
+  top: 50%;
+  width: min(44vh, 360px);
+  height: auto;
+  transform: translateY(-50%);
+  opacity: 0.05;
+  filter: blur(3px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.deck-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+.deck-label::after {
+  content: "";
+  width: clamp(40px, 10vw, 150px);
+  height: 1px;
+  background: color-mix(in oklab, var(--color-accent) 50%, transparent);
+}
+
+/* Text panels are moved by the scroll handler; keep it off the main thread. */
+.deck-copy {
+  will-change: transform, opacity;
+}
+
+/* The stage the phone lives on. JS translates this; `.phone` keeps the tilt. */
+.phone-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+  pointer-events: none;
+  transform: translate3d(20%, 0, 0);
+  will-change: transform;
+}
+/* The float would fight the scroll-driven travel, so the stage owns the motion. */
+.phone-stage .phone {
+  animation: none;
+  transform: rotateY(calc(var(--flip, 1) * -16deg)) rotateX(7deg) rotateZ(calc(var(--flip, 1) * 1.2deg));
+}
+
+/* The token chip that rides beside the phone, as in the film's second panel. */
+.coin-chip {
+  border: 1px solid color-mix(in oklab, var(--color-line) 90%, transparent);
+  background: color-mix(in oklab, var(--color-panel) 82%, transparent);
+  backdrop-filter: blur(10px);
+  border-radius: 22px;
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phone-stage {
+    transform: translate3d(20%, 0, 0) !important;
+  }
+  .deck-copy {
+    transform: none !important;
+    opacity: 1 !important;
+    will-change: auto;
+  }
+}
