@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { FeedItemDTO } from "@/lib/types";
+import type { FeedItemDTO, QuoteDTO } from "@/lib/types";
 import { CoinRail } from "./CoinRail";
 import { LiveTrades } from "./LiveTrades";
 import { ClipStage } from "./ClipStage";
@@ -25,11 +25,19 @@ export function DesktopFeed() {
   const { enabled, authenticated, getToken, login } = useAuth();
 
   const [scope, setScope] = useState<Scope>("foryou");
+  /**
+   * Which wall: what people posted, or the whole catalogue. The desktop default
+   * is `uploaded` — a real video from a real person is the point of the feed,
+   * and the catalogue's art-only rows are padding you should have to ask for.
+   */
+  const [source, setSource] = useState<"uploaded" | "all">("uploaded");
   const [selectedMint, setSelectedMint] = useState<string | null>(null);
   const [items, setItems] = useState<FeedItemDTO[]>([]);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
+  /** Live prices for the wall, refreshed on a timer so the numbers move. */
+  const [quotes, setQuotes] = useState<Record<string, QuoteDTO>>({});
   const [shareFor, setShareFor] = useState<FeedItemDTO | null>(null);
   const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
   /** The clip whose coin is being traded — one sheet, opened from the stage or
@@ -41,14 +49,21 @@ export function DesktopFeed() {
       const p = new URLSearchParams({ limit: "24" });
       if (selectedMint) p.set("mint", selectedMint);
       if (scope === "following") p.set("scope", "following");
+      if (source === "uploaded" && !selectedMint) p.set("uploaded", "1");
       const r = await fetch(`/api/feed?${p}`, { cache: "no-store" });
       const j = (await r.json()) as { items?: FeedItemDTO[] };
-      setItems(j.items ?? []);
+      const next = j.items ?? [];
+      setItems(next);
       setActive(0);
+      // A brand-new catalogue can have nothing uploaded yet. Rather than leave a
+      // blank wall, fall back to everything — the toggle shows which one you got.
+      if (next.length === 0 && source === "uploaded" && !selectedMint && scope === "foryou") {
+        setSource("all");
+      }
     } catch {
       /* leave the wall as it was */
     }
-  }, [selectedMint, scope]);
+  }, [selectedMint, scope, source]);
 
   useEffect(() => {
     void load();
@@ -64,6 +79,50 @@ export function DesktopFeed() {
   }, [items]);
 
   const activeItem = items[active] ?? null;
+
+  /**
+   * A live tick every few seconds, over whatever is on the wall.
+   *
+   * The market numbers on a clip are the reason the screen is interesting, so
+   * they cannot be frozen at page-load. This is the same read-only price map the
+   * phone feed polls; the returned quote is merged over the clip's stored coin
+   * so the trade panel — and its tick flash — track the market rather than the
+   * keeper's last write.
+   */
+  useEffect(() => {
+    const mints = Array.from(new Set(items.map((it) => it.coin.mint).filter(Boolean)));
+    if (mints.length === 0) return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/quotes?mints=${encodeURIComponent(mints.join(","))}`, {
+          cache: "no-store",
+        });
+        const j = (await r.json()) as { quotes?: Record<string, QuoteDTO> };
+        if (alive) setQuotes(j.quotes ?? {});
+      } catch {
+        /* a missed tick is not worth surfacing */
+      }
+    };
+    void poll();
+    const t = setInterval(() => void poll(), 6000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [items]);
+
+  const liveQuote = activeItem ? quotes[activeItem.coin.mint] : undefined;
+  const activeCoin = activeItem
+    ? liveQuote
+      ? {
+          ...activeItem.coin,
+          priceSol: liveQuote.priceSol,
+          marketCapSol: liveQuote.marketCapSol,
+          change24hPct: liveQuote.change24hPct,
+        }
+      : activeItem.coin
+    : null;
 
   const onLike = useCallback(
     async (i: number) => {
@@ -122,10 +181,35 @@ export function DesktopFeed() {
               one coin · show all ✕
             </button>
           )}
+
+          <div className="ml-auto flex items-center gap-1 rounded-full border border-line bg-panel p-0.5">
+            {(
+              [
+                { key: "uploaded", label: "Clips" },
+                { key: "all", label: "Everything" },
+              ] as const
+            ).map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setSource(s.key)}
+                title={
+                  s.key === "uploaded"
+                    ? "Only clips people actually posted"
+                    : "The whole catalogue, including art-only tokens"
+                }
+                className={`rounded-full px-3 py-1 text-[12px] font-bold transition ${
+                  source === s.key ? "bg-ink text-black" : "text-muted hover:text-ink"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
           {scope === "following" && !authenticated && (
             <button
               onClick={login}
-              className="ml-auto rounded-full burn-gradient px-3.5 py-1.5 text-[12px] font-black text-black"
+              className="rounded-full burn-gradient px-3.5 py-1.5 text-[12px] font-black text-black"
             >
               Log in to follow
             </button>
@@ -150,7 +234,7 @@ export function DesktopFeed() {
       </div>
 
       <TradePanel
-        coin={activeItem?.coin ?? null}
+        coin={activeCoin}
         onTrade={() => activeItem && setBuyFor(activeItem)}
       />
 

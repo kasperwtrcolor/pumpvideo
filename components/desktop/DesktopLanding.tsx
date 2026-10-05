@@ -27,6 +27,8 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
   const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
   const enter = useCallback(() => setWelcomeOpen(false), []);
   const [reels, setReels] = useState<Reel[]>([]);
+  /** Videos the operator dropped into /public/landing (see the discovery effect). */
+  const [provided, setProvided] = useState<string[]>([]);
   const [stats, setStats] = useState<{ coins: number; clips: number; traders: number; rewardsPaidSol: number } | null>(null);
 
   // The reels are the freshest clips the feed would serve — the same payload the
@@ -66,12 +68,70 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
     };
   }, []);
 
-  // Fall back to the welcome wall's art when the feed came back empty (a very
-  // fresh deploy), so the phone is never a blank slab.
-  const slides: Reel[] =
-    reels.length > 0
-      ? reels
-      : tiles.slice(0, 6).map((t) => ({ video: t.video, art: t.art, name: "Pemp", symbol: "PEMP", pct: 0 }));
+  /**
+   * Videos the operator supplied, from /public/landing.
+   *
+   * Two ways in, so dropping files in the repo needs no code change: a
+   * `manifest.json` (an array, or `{ "videos": [...] }`) wins if it is there,
+   * otherwise the convention is `1.mp4` … `6.mp4`. The convention is *probed*,
+   * not assumed — a 404 is simply skipped, so a missing file never becomes a
+   * broken frame on the hero.
+   */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let names: string[] = [];
+      try {
+        const r = await fetch("/landing/manifest.json", { cache: "no-store" });
+        if (r.ok) {
+          const j: unknown = await r.json();
+          const list = Array.isArray(j)
+            ? j
+            : j && typeof j === "object" && Array.isArray((j as { videos?: unknown }).videos)
+              ? (j as { videos: unknown[] }).videos
+              : [];
+          names = list.filter((x): x is string => typeof x === "string");
+        }
+      } catch {
+        /* no manifest is the normal case */
+      }
+      if (names.length === 0) {
+        const probed = await Promise.all(
+          [1, 2, 3, 4, 5, 6].map(async (n) => {
+            try {
+              const r = await fetch(`/landing/${n}.mp4`, { method: "HEAD" });
+              return r.ok ? `${n}.mp4` : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        names = probed.filter((x): x is string => Boolean(x));
+      }
+      if (!alive || names.length === 0) return;
+      setProvided(names.map((n) => (/^https?:\/\//.test(n) || n.startsWith("/") ? n : `/landing/${n}`)));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Supplied reels lead; the app's own freshest clips fill any room left. If
+  // neither exists (a very fresh deploy), the welcome wall's art stands in so
+  // the phone is never a blank slab.
+  const fallback: Reel[] = tiles
+    .slice(0, 6)
+    .map((t) => ({ video: t.video, art: t.art, name: "Pemp", symbol: "", pct: 0 }));
+  const supplied: Reel[] = provided.map((src) => ({
+    video: src,
+    art: null,
+    name: "Pemp",
+    symbol: "",
+    pct: 0,
+  }));
+  const slides: Reel[] = (
+    provided.length > 0 ? [...supplied, ...reels] : reels.length > 0 ? reels : fallback
+  ).slice(0, 6);
 
   if (!open) return null;
 
@@ -113,7 +173,7 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
             <span className="riser block" style={{ animationDelay: "120ms" }}>
               is a coin
             </span>
-            <span className="riser block text-accent" style={{ animationDelay: "200ms" }}>
+            <span className="riser block text-sheen" style={{ animationDelay: "200ms" }}>
               you can buy.
             </span>
           </h1>
@@ -387,7 +447,12 @@ function Phone({ reels }: { reels: Reel[] }) {
   }, [n]);
 
   return (
-    <div className="phone-wrap">
+    <div className="phone-wrap relative">
+      {/* A breathing halo, so the device reads as lit rather than pasted on. */}
+      <div
+        aria-hidden
+        className="phone-glow pointer-events-none absolute -inset-10 rounded-[70px] bg-accent/20 blur-3xl"
+      />
       <div className="phone">
         <div className="phone-screen">
           <div
@@ -407,15 +472,18 @@ function Phone({ reels }: { reels: Reel[] }) {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20" />
                 <div className="absolute inset-x-0 bottom-0 p-3">
                   <div className="text-[13px] font-black text-white text-glow">
-                    {r.name} <span className="text-white/60">${r.symbol}</span>
+                    {r.name}
+                    {r.symbol ? <span className="text-white/60"> ${r.symbol}</span> : null}
                   </div>
-                  <div
-                    className={`mt-0.5 text-[11px] font-bold ${
-                      r.pct >= 0 ? "text-up" : "text-down"
-                    }`}
-                  >
-                    {r.pct >= 0 ? "↑" : "↓"} {Math.abs(r.pct).toFixed(1)}%
-                  </div>
+                  {r.symbol ? (
+                    <div
+                      className={`mt-0.5 text-[11px] font-bold ${
+                        r.pct >= 0 ? "text-up" : "text-down"
+                      }`}
+                    >
+                      {r.pct >= 0 ? "↑" : "↓"} {Math.abs(r.pct).toFixed(1)}%
+                    </div>
+                  ) : null}
                 </div>
                 <div className="absolute bottom-24 right-2.5 flex flex-col gap-3">
                   {[0, 1, 2].map((d) => (

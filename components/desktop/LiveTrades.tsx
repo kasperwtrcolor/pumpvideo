@@ -58,7 +58,7 @@ export function LiveTrades() {
         {trades.map((t) => {
           const buy = t.side === "BUY";
           return (
-            <li key={t.id}>
+            <li key={t.id} className="tape-in">
               <Link
                 href={`/t/${t.mint}`}
                 className="flex items-center gap-2.5 px-3 py-2 transition hover:bg-panel2"

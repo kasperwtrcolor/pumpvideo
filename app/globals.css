@@ -676,3 +676,95 @@ body {
     transition: none;
   }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Desktop feed — the "alive" layer
+ * ---------------------------------------------------------------------------
+ * A live screen is dead when numbers and lists change with no motion: the value
+ * is right, the fact that it moved is invisible. These are all short, one-shot
+ * and driven by a real state change (a poll landed, a fill arrived, a row
+ * mounted) — never a loop over content someone is reading.
+ */
+
+/* A list row arriving (a rail loading, a leaderboard row). */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.row-in {
+  animation: row-in 380ms var(--ease-decelerate) both;
+}
+
+/* A fill landing on the tape. Slides in from the left, the direction the eye
+   reads the tape. */
+@keyframes tape-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.tape-in {
+  animation: tape-in 420ms var(--ease-decelerate) both;
+}
+
+/* The halo behind the landing's phone, breathing. */
+@keyframes glow-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+.phone-glow {
+  animation: glow-pulse 4.6s ease-in-out infinite;
+}
+
+/* The hero's accent words, lit by a slow sweep of light. */
+@keyframes sheen {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
+}
+.text-sheen {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-accent) 35%,
+    #c8ffdf 50%,
+    var(--color-accent) 65%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-in,
+  .tape-in,
+  .phone-glow,
+  .text-sheen {
+    animation: none;
+  }
+  .text-sheen {
+    background: none;
+    color: var(--color-accent);
+    -webkit-text-fill-color: var(--color-accent);
+  }
+}

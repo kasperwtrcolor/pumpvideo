@@ -75,6 +75,13 @@ export async function GET(req: NextRequest) {
   const offset = Math.max(0, Number(sp.get("offset")) || 0);
   const mint = sp.get("mint");
   const seed = sp.get("seed")?.slice(0, 64) ?? "";
+  /**
+   * `uploaded=1` narrows the wall to clips a real person posted — no seeded or
+   * art-only ingest rows. It is the desktop feed's default wall, because on a
+   * wide screen a viewer should see what people actually made, not the
+   * placeholder art the catalogue is padded with.
+   */
+  const uploadedOnly = sp.get("uploaded") === "1";
 
   // Pool cutoff for the shuffled feed. The seed fixes the *order*; this fixes the
   // *contents*, so a clip ingested while the visitor is scrolling can't re-permute
@@ -102,7 +109,7 @@ export async function GET(req: NextRequest) {
   // A single-token wall is not a ranking, it is a body of work: every clip
   // bound to one mint, newest first. `sort` describes *which tokens* a rail
   // draws from, and here there is only one, so it has no say in the order.
-  const orderBy = mint
+  const orderBy = mint || uploadedOnly
     ? [{ createdAt: "desc" as const }, { id: "asc" as const }]
     : sort === "new"
       ? [{ coin: { launchedAt: "desc" as const } }, { id: "asc" as const }]
@@ -226,7 +233,10 @@ export async function GET(req: NextRequest) {
    */
   const buildWhere = (gate: boolean) => {
     const coin: Prisma.CoinWhereInput = mint ? { mint } : { ...VISIBLE_COIN };
-    if (gate && !mint) {
+    // The rail's gate is a *ranking* claim ("the day's movers", "the newest
+    // launches"). An uploaded-only wall is a different question — "what did
+    // people post" — so ranking gates are skipped rather than emptying it.
+    if (gate && !mint && !uploadedOnly) {
       // Movers is a gainers board: rank by 24h price change. The gate keeps only
       // coins that have actually moved — a stored 0 means "flat, or never
       // measured" — so the wall is the day's movers rather than the whole
@@ -258,6 +268,8 @@ export async function GET(req: NextRequest) {
     return {
       ready: true,
       coin,
+      // A real uploader posted it (see the desktop default).
+      ...(uploadedOnly ? { uploadedById: { not: null } } : {}),
       // For a coin with a real user clip, hide every non-user clip (placeholders
       // and seeded clips alike) — see userClipCoinIds above. User videos take
       // precedence, on every rail and on the single-token wall.

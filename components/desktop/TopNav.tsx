@@ -18,7 +18,7 @@ import { fmtUsd } from "@/lib/format";
 const LINKS = [
   { href: "/", label: "Feed", match: (p: string) => p === "/" },
   { href: "/coins", label: "Coins", match: (p: string) => p.startsWith("/coins") },
-  { href: "/coins?sort=top", label: "Top", match: (p: string) => p.startsWith("/coins") && p.includes("top") },
+  { href: "/top", label: "Top", match: (p: string) => p.startsWith("/top") },
 ] as const;
 
 export function TopNav() {
@@ -33,7 +33,7 @@ export function TopNav() {
 
       <nav aria-label="Main" className="flex shrink-0 items-center gap-1">
         {LINKS.map((l) => {
-          const active = l.label === "Top" ? false : l.match(path);
+          const active = l.match(path);
           return (
             <Link
               key={l.label}

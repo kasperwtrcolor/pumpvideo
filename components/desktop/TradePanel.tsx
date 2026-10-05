@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { CoinDTO } from "@/lib/types";
 import { CoinAvatar } from "../CoinAvatar";
 import { useTrader } from "../TraderProvider";
+import { useTick } from "@/lib/use-tick";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, sym, timeAgo } from "@/lib/format";
 
 type Detail = {
@@ -57,6 +58,9 @@ export function TradePanel({ coin, onTrade }: { coin: CoinDTO | null; onTrade: (
 
   const up = coin.change24hPct >= 0;
   const trades = detail?.trades ?? [];
+  // The cap flashes on every live move, so the panel reads as ticking rather
+  // than as a static label that happens to be right.
+  const cap = useTick(coin.marketCapSol * solUsd);
 
   return (
     <aside className="no-scrollbar w-[340px] shrink-0 overflow-y-auto border-l border-line bg-panel/40">
@@ -80,7 +84,14 @@ export function TradePanel({ coin, onTrade }: { coin: CoinDTO | null; onTrade: (
 
         <div className="mt-4 rounded-2xl border border-line bg-panel p-3.5">
           <div className="text-[28px] font-black leading-none tabular-nums">
-            {fmtUsd(coin.marketCapSol * solUsd)}
+            <span
+              key={cap.nonce}
+              className={`-mx-1 inline-block rounded-md px-1 ${
+                cap.dir === "up" ? "tick-up" : cap.dir === "down" ? "tick-down" : ""
+              }`}
+            >
+              {fmtUsd(coin.marketCapSol * solUsd)}
+            </span>
           </div>
           <div className="mt-0.5 text-[11px] font-bold uppercase tracking-wider text-muted">
             market cap
