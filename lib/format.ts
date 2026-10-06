@@ -78,10 +78,40 @@ export function fmtUsd(n: number | null | undefined): string {
   return `$${n.toFixed(4)}`;
 }
 
+/**
+ * A percentage magnitude, compacted and unsigned — for chips that draw their
+ * own direction arrow.
+ *
+ * Memecoins really do print four-digit percentages: a coin that launches at a
+ * rounding error and graduates the same day is up five figures, and a raw
+ * `477313.0%` is both unreadable and wider than the row it sits in. Past a
+ * thousand the number is summarised the way a trader says it out loud
+ * ("477K%"). At a thousand and below it stays exact to one decimal.
+ *
+ * Unsigned on purpose: `fmtPct` is the signed wrapper, and the list rows want
+ * the magnitude because they render `↑`/`↓` and colour the direction instead.
+ */
+export function fmtPctAbs(n: number | null | undefined, dp = 1): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1_000_000) return `${(a / 1_000_000).toFixed(1)}M%`;
+  if (a >= 10_000) return `${Math.round(a / 1000)}K%`;
+  if (a >= 1000) return `${(a / 1000).toFixed(1)}K%`;
+  return `${a.toFixed(dp)}%`;
+}
+
+/**
+ * A signed percentage.
+ *
+ * The one formatter every surface uses, so a move is never `+1,491,000.0%`
+ * on one screen and `+1.5M%` on the next. Note the sign is applied *outside*
+ * the compaction, because the compacted magnitude is absolute — without this
+ * a −274K% move would render without its minus.
+ */
 export function fmtPct(n: number | null | undefined, dp = 1): string {
   if (n == null || !Number.isFinite(n)) return "—";
-  const s = n > 0 ? "+" : "";
-  return `${s}${n.toFixed(dp)}%`;
+  const sign = n < 0 ? "-" : n > 0 ? "+" : "";
+  return `${sign}${fmtPctAbs(n, dp)}`;
 }
 
 /** Compact holder/volume counts. */

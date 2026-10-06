@@ -8,7 +8,7 @@ import { NotifyBell } from "./NotifyBell";
 import { DepositButton } from "./DepositButton";
 import { SearchIcon } from "./Icons";
 import { LogoLockup } from "./Logo";
-import { fmtUsd } from "@/lib/format";
+import { fmtPctAbs, fmtUsd } from "@/lib/format";
 
 /**
  * The app header: who you are on the left, money on the right.
@@ -129,7 +129,7 @@ function BalanceBlock({
             up ? "bg-up/20 text-up" : "bg-down/20 text-down"
           }`}
         >
-          {up ? "↑" : "↓"} {Math.abs(pnlPct).toFixed(1)}%
+          {up ? "↑" : "↓"} {fmtPctAbs(pnlPct)}
         </span>
       </div>
     </div>

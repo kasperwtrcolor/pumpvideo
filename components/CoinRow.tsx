@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CoinAvatar } from "./CoinAvatar";
-import { fmtUsd, sym, timeAgo } from "@/lib/format";
+import { fmtPctAbs, fmtUsd, sym, timeAgo } from "@/lib/format";
 
 /**
  * The big-type coin row — the index's single row style, shared by every list of
@@ -112,7 +112,7 @@ export function CoinRow({
             }`}
           >
             <span aria-hidden>{up ? "↑" : "↓"}</span>
-            <span>{Math.abs(change24hPct).toFixed(1)}%</span>
+            <span>{fmtPctAbs(change24hPct)}</span>
           </div>
         </div>
       </Link>

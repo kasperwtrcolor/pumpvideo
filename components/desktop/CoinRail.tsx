@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { CoinDTO } from "@/lib/types";
 import { CoinAvatar } from "../CoinAvatar";
-import { fmtUsd, sym, timeAgo } from "@/lib/format";
+import { fmtPctAbs, fmtUsd, sym, timeAgo } from "@/lib/format";
 import { useTrader } from "../TraderProvider";
 
 /**
@@ -118,7 +118,7 @@ export function CoinRail({
                   <div
                     className={`text-[11px] font-bold tabular-nums ${up ? "text-up" : "text-down"}`}
                   >
-                    {up ? "↑" : "↓"} {Math.abs(c.change24hPct).toFixed(1)}%
+                    {up ? "↑" : "↓"} {fmtPctAbs(c.change24hPct)}
                   </div>
                 </div>
               </button>

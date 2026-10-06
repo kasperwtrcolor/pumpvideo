@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LandingTile } from "@/lib/landing";
 import type { FeedItemDTO } from "@/lib/types";
-import { fmtSol } from "@/lib/format";
+import { fmtPctAbs, fmtSol } from "@/lib/format";
 
 /**
  * The pieces the landing shares between its phone and its wide arrangement.
@@ -143,18 +143,6 @@ export function useLandingData(tiles: LandingTile[]) {
   return { reels, slides, stats };
 }
 
-/**
- * A 24h move, compacted. Memecoins really do print four-digit percentages, and
- * `477313.0%` is both unreadable and wider than its card — so anything past a
- * thousand is summarised the way a trader would say it out loud.
- */
-export function fmtPct(p: number): string {
-  const a = Math.abs(p);
-  if (a >= 1_000_000) return `${(a / 1_000_000).toFixed(1)}M`;
-  if (a >= 1000) return `${(a / 1000).toFixed(a >= 10_000 ? 0 : 1)}K`;
-  return a.toFixed(1);
-}
-
 export function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -214,7 +202,7 @@ export function CoinChip({ reel }: { reel: Reel }) {
       </div>
       <div className="flex flex-col items-end gap-1">
         <span className={`text-[15px] font-black tabular-nums ${up ? "text-up" : "text-down"}`}>
-          {up ? "↑" : "↓"} {fmtPct(reel.pct)}%
+          {up ? "↑" : "↓"} {fmtPctAbs(reel.pct)}
         </span>
         <svg viewBox="0 0 84 36" className={`h-7 w-[84px] ${up ? "text-up" : "text-down"}`} aria-hidden>
           <path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -263,7 +251,7 @@ export function Phone({ reels, index }: { reels: Reel[]; index: number }) {
                     </div>
                     {r.symbol ? (
                       <div className={`mt-0.5 text-[11px] font-bold ${r.pct >= 0 ? "text-up" : "text-down"}`}>
-                        {r.pct >= 0 ? "↑" : "↓"} {fmtPct(r.pct)}%
+                        {r.pct >= 0 ? "↑" : "↓"} {fmtPctAbs(r.pct)}
                       </div>
                     ) : null}
                   </div>
