@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
 import { serializeClip, serializeCoin, positionLite } from "@/lib/api";
 import { solUsd } from "@/lib/sol-price";
-import { isVisibleCoin } from "@/lib/visibility";
+import { isServableCoin } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -42,17 +42,20 @@ export async function GET(req: NextRequest) {
   ]);
 
   // Only surface clips that are still servable. A saved clip whose coin got
-  // banned (pump.fun moderation) or whose row was deleted should not appear.
+  // banned (pump.fun moderation) should not appear.
+  //
+  // A coin the retention sweep has *hidden* is deliberately still served here:
+  // it is out of discovery, but this is the viewer's own saved list, and someone
+  // who saved a clip must still be able to find it and sell what they hold.
+  // That is the difference between hidden and deleted (see lib/visibility.ts).
   //
   // Paging stays over the *favourite rows*, not the visible items: `nextOffset`
   // advances by `rows.length` and `total` is the raw favourite count. If it
   // advanced by visible items instead, the offset would drift behind the rows it
   // claimed to have consumed and the pager would loop over the same page.
-  // The cost is that a page containing a hidden clip renders fewer cards — which
-  // is the honest outcome, not a bug.
   // Positions for the coins on this page, so each row can be coloured against
   // the viewer's own entry price rather than a generic 24h change.
-  const coinIds = rows.filter((r) => r.clip.ready && isVisibleCoin(r.clip.coin)).map((r) => r.clip.coinId);
+  const coinIds = rows.filter((r) => r.clip.ready && isServableCoin(r.clip.coin)).map((r) => r.clip.coinId);
   const positions = coinIds.length
     ? await prisma.position.findMany({
         where: { traderId: trader.id, coinId: { in: coinIds } },
@@ -62,7 +65,7 @@ export async function GET(req: NextRequest) {
   const positionByCoin = new Map(positions.map((p) => [p.coinId, p]));
 
   const items = rows
-    .filter((r) => r.clip.ready && isVisibleCoin(r.clip.coin))
+    .filter((r) => r.clip.ready && isServableCoin(r.clip.coin))
     .map((r) => {
       const pos = positionByCoin.get(r.clip.coinId);
       return {

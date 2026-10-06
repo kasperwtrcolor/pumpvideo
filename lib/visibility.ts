@@ -27,6 +27,24 @@ export const VISIBLE_COIN: Prisma.CoinWhereInput = {
 };
 
 /**
+ * Whether a coin may be *served on request* — a direct link, a saved clip, a
+ * position.
+ *
+ * This is `VISIBLE_COIN` minus the retention gate. A coin the retention sweep
+ * has hidden is gone from discovery (the feed, the index, search, the landing)
+ * but must still resolve for someone who is already attached to it: their saved
+ * clip, their position, a link they have open. Hiding exists to keep dead tokens
+ * out of the *feed*, not to break the pages of the people who hold them — and a
+ * hidden row is never deleted precisely so this keeps working.
+ *
+ * Bans are different: a banned coin is a moderation decision about the token
+ * itself, so it stops serving everywhere, attached or not.
+ */
+export const SERVABLE_COIN: Prisma.CoinWhereInput = {
+  isBanned: false,
+};
+
+/**
  * The in-memory form of `VISIBLE_COIN`.
  *
  * Takes the minimum shape rather than a full `Coin`, so it works on a
@@ -37,6 +55,11 @@ export function isVisibleCoin(coin: {
   hiddenAt: Date | null;
 }): boolean {
   return !coin.isBanned && coin.hiddenAt === null;
+}
+
+/** The in-memory form of `SERVABLE_COIN`: banned is the only disqualifier. */
+export function isServableCoin(coin: { isBanned: boolean }): boolean {
+  return !coin.isBanned;
 }
 
 /**

@@ -2,7 +2,8 @@ import { prisma } from "./db";
 import { MIN_MCAP_SOL } from "./ingest";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
-import { MIN_HOLDERS, holdersForMints } from "./holders";
+import { fetchJupPrices } from "./jup-price";
+import { MIN_HOLDERS } from "./holders";
 
 /**
  * Dead-token retention: take tokens that stopped trading out of the catalogue.
@@ -87,6 +88,15 @@ export type RetentionPlan = {
   candidates: RetentionCandidate[];
   /** The sweep proved these are gone. */
   dead: RetentionCandidate[];
+  /**
+   * Coins that must never be *deleted*: a user uploaded a clip for one, holds a
+   * position in it, follows it, or has traded it.
+   *
+   * This set governs deletion only. Hiding ignores it — a dead token leaves the
+   * feed whoever is attached to it, because a follow is not a reason to keep
+   * showing everyone else a token that no longer trades.
+   */
+  guarded: Set<string>;
   /** The sweep proved these are still alive — left alone. */
   alive: RetentionCandidate[];
   /** Fell out of both rankings, i.e. no longer refreshable through the API. */
@@ -105,18 +115,19 @@ export type RetentionPlan = {
 };
 
 /**
- * Cheap pre-filter: old, not already hidden, not banned upstream, and nothing a
- * user depends on.
+ * Cheap pre-filter: old, not already hidden, not banned upstream, and with no
+ * stored 24h volume.
  *
- * The dependency guards are the point of the whole exercise. Deleting a Coin
- * cascades (Clip, Position, TokenFollow, PricePoint are all onDelete: Cascade),
- * so a token a user uploaded a clip for, holds a position in, or follows is
- * never a candidate — their content must not be the thing that disappears.
+ * `guarded` is the set of these candidates a user is attached to — they uploaded
+ * a clip for it, hold a position in it, or follow it. The guards are NOT applied
+ * here: an attached coin is still hidden from the feed when it dies (the user
+ * said so — a follow must not keep a dead token in front of everyone else), it is
+ * only spared *deletion*, so the attachment survives. See `applyRetention`.
  */
 async function selectCandidates(
   graceDays: number,
   limit: number,
-): Promise<{ rows: RetentionCandidate[]; traded: Set<string> }> {
+): Promise<{ rows: RetentionCandidate[]; traded: Set<string>; guarded: Set<string> }> {
   const cutoff = new Date(Date.now() - graceDays * 86_400_000);
 
   const rows = await prisma.coin.findMany({
@@ -127,37 +138,50 @@ async function selectCandidates(
       // Directionally safe even though stored volume is stale: a non-zero
       // reading means it *did* trade, so it can only shrink the candidate set.
       volume24hSol: { lte: 0 },
-      // A clip somebody uploaded by hand. The overwhelming majority of clips
-      // are ingest-created art cards; this excludes precisely the ones a human
-      // is attached to.
-      clips: { none: { uploadedById: { not: null } } },
-      positions: { none: {} },
-      followers: { none: {} },
     },
     select: { id: true, mint: true, symbol: true, createdAt: true },
     orderBy: { createdAt: "asc" },
     take: limit,
   });
 
+  const ids = rows.map((r) => r.id);
+  const mints = rows.map((r) => r.mint);
+
   // Trade has no foreign key to Coin — `coinMint` is a plain string on purpose,
   // so trade history and the creator-rewards ledger outlive catalogue pruning.
   // That also means the guard cannot be expressed as a Prisma relation and has
   // to be a separate lookup.
-  const mints = rows.map((r) => r.mint);
-  const traded = new Set<string>();
-  if (mints.length) {
-    const hits = await prisma.trade.findMany({
-      where: { coinMint: { in: mints } },
-      select: { coinMint: true },
-      distinct: ["coinMint"],
-    });
-    for (const h of hits) traded.add(h.coinMint);
-  }
+  const [tradedHits, guardedRows] = await Promise.all([
+    mints.length
+      ? prisma.trade.findMany({
+          where: { coinMint: { in: mints } },
+          select: { coinMint: true },
+          distinct: ["coinMint"],
+        })
+      : Promise.resolve([]),
+    ids.length
+      ? prisma.coin.findMany({
+          where: {
+            id: { in: ids },
+            OR: [
+              { clips: { some: { uploadedById: { not: null } } } },
+              { positions: { some: {} } },
+              { followers: { some: {} } },
+            ],
+          },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
-  return { rows, traded };
+  return {
+    rows,
+    traded: new Set(tradedHits.map((t) => t.coinMint)),
+    guarded: new Set(guardedRows.map((g) => g.id)),
+  };
 }
 
-/** Count how many rows each guard removed, for the dry-run report. */
+/** Count how many rows each guard spares from *deletion*, for the dry-run report. */
 async function countSkipped(graceDays: number): Promise<RetentionPlan["skipped"]> {
   const cutoff = new Date(Date.now() - graceDays * 86_400_000);
   const base = {
@@ -208,13 +232,17 @@ export async function planRetention(opts: {
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const cutoff = new Date(Date.now() - graceDays * 86_400_000);
 
-  const [skipped, { rows, traded }] = await Promise.all([
+  const [skipped, { rows, traded, guarded }] = await Promise.all([
     countSkipped(graceDays),
     selectCandidates(graceDays, limit),
   ]);
 
-  // Drop anything with a trade history before spending a sweep on it.
-  const candidates = rows.filter((r) => !traded.has(r.mint));
+  // Nothing is filtered out of the candidate set for hiding: an attached coin
+  // still leaves the feed when it dies. It is protected only from *deletion*, so
+  // the trade-history guard is merged into the same set the delete path consults.
+  const protectedIds = new Set(guarded);
+  for (const r of rows) if (traded.has(r.mint)) protectedIds.add(r.id);
+  const candidates = rows;
 
   if (candidates.length === 0) {
     return {
@@ -224,6 +252,7 @@ export async function planRetention(opts: {
       dead: [],
       alive: [],
       unranked: [],
+      guarded: protectedIds,
       skipped,
       sweepErrors: [],
       actionable: true,
@@ -258,13 +287,40 @@ export async function planRetention(opts: {
     }
   }
 
+  // Rescue step, and the reason this module still works now that prices come from
+  // three sources rather than one.
+  //
+  // The pump.fun ranking is a *discovery* list, not a liveness oracle. A
+  // graduated coin leaves it permanently the moment it graduates, and an
+  // on-curve coin falls off it within hours — so "unranked" was never the same
+  // as "stopped trading", it only looked like it while the ranking was the only
+  // thing we could read. Jupiter quotes both by mint (see lib/jup-price.ts), so
+  // a candidate that still has a quote is alive by the only test that matters
+  // here: someone can still trade it. Without this the sweep would hide, and on
+  // a `--hard` run delete, coins that have a live market — the opposite of what
+  // a catalogue of tradeable tokens wants.
+  const jup = dead.length
+    ? await fetchJupPrices(dead.map((d) => d.mint)).catch(() => new Map())
+    : new Map();
+  const stillDead: RetentionCandidate[] = [];
+  for (const c of dead) {
+    if (jup.has(c.mint)) {
+      alive.push(c);
+      const i = unranked.indexOf(c);
+      if (i >= 0) unranked.splice(i, 1);
+    } else {
+      stillDead.push(c);
+    }
+  }
+
   return {
     graceDays,
     cutoff,
     candidates,
-    dead,
+    dead: stillDead,
     alive,
     unranked,
+    guarded: protectedIds,
     skipped,
     sweepErrors,
     actionable: sweepErrors.length === 0,
@@ -275,6 +331,8 @@ export type RetentionResult = {
   mode: RetentionMode;
   planned: number;
   applied: number;
+  /** Dead coins a user is attached to, so *delete* left them hidden instead. */
+  spared: number;
   /** Set when the plan was not actionable; the reason, for the log. */
   refused: string | null;
 };
@@ -298,16 +356,28 @@ export async function applyRetention(
       mode,
       planned: plan.dead.length,
       applied: 0,
+      spared: 0,
       refused:
         `incomplete pump.fun sweep (${plan.sweepErrors.length} page failure(s)); ` +
         `a partial view cannot tell dead from unranked`,
     };
   }
   if (plan.dead.length === 0) {
-    return { mode, planned: 0, applied: 0, refused: null };
+    return { mode, planned: 0, applied: 0, spared: 0, refused: null };
   }
 
-  const ids = plan.dead.map((c) => c.id);
+  // Deletion is the only irreversible step, so it is the only one the guards
+  // apply to. A hidden row keeps the user's clip, position and follow intact —
+  // which is exactly what "hidden, not deleted" means. A coin a user is attached
+  // to is therefore removed from the feed like any other, but survives as a row.
+  const target =
+    mode === "delete" ? plan.dead.filter((c) => !plan.guarded.has(c.id)) : plan.dead;
+  const spared = plan.dead.length - target.length;
+  if (target.length === 0) {
+    return { mode, planned: plan.dead.length, applied: 0, spared, refused: null };
+  }
+
+  const ids = target.map((c) => c.id);
 
   const res =
     mode === "delete"
@@ -317,7 +387,7 @@ export async function applyRetention(
           data: { hiddenAt: new Date() },
         });
 
-  return { mode, planned: plan.dead.length, applied: res.count, refused: null };
+  return { mode, planned: plan.dead.length, applied: res.count, spared, refused: null };
 }
 
 /**
@@ -337,18 +407,19 @@ export async function applyRetention(
  * 2026-10-03: 91% of the catalogue sat below 30 holders, median 2, while real
  * coins ran to the hundreds. That gap is the whole gate.
  *
- * THE TWO GUARDS
+ * THE GUARD
  *
  *   - holders > 0 AND a fresh `holdersSyncedAt`. A stored 0 means "never
  *     measured", not "no holders" — hiding on it would take out every coin the
  *     keeper has not walked yet. A stale count risks the same on a coin that has
  *     since grown.
- *   - the dependency guards the dead sweep uses: a coin with a user-uploaded
- *     clip, an open position, a follower or a trade is never touched. A user's
- *     content must not be what disappears.
  *
- * Reversible by construction: `restoreRevived` un-hides a coin the moment
- * RugCheck shows it back above MIN_HOLDERS.
+ * No dependency guards. Hiding is reversible, so a dust coin leaves the feed
+ * whether or not a user is attached to it; the attachment protects it from
+ * *deletion* only (see `applyRetention`).
+ *
+ * Reversible by construction: `restoreRevived` un-hides a coin the moment a
+ * source can quote it a price again.
  */
 export async function hideDust(
   opts: { limit?: number; apply?: boolean } = {},
@@ -365,9 +436,6 @@ export async function hideDust(
       createdAt: { lt: new Date(now - DUST_MIN_AGE_MS) },
       holders: { gt: 0, lt: MIN_HOLDERS },
       holdersSyncedAt: { gte: new Date(now - HOLDER_FRESH_MS) },
-      clips: { none: { uploadedById: { not: null } } },
-      positions: { none: {} },
-      followers: { none: {} },
     },
     select: { id: true, mint: true },
     orderBy: { holdersSyncedAt: "asc" },
@@ -375,18 +443,11 @@ export async function hideDust(
   });
   if (rows.length === 0) return { candidates: 0, hidden: 0 };
 
-  // Trade has no foreign key to Coin (coinMint is a plain string), so this guard
-  // is a separate lookup rather than a Prisma relation — same as the dead sweep.
-  const traded = new Set(
-    (
-      await prisma.trade.findMany({
-        where: { coinMint: { in: rows.map((r) => r.mint) } },
-        select: { coinMint: true },
-        distinct: ["coinMint"],
-      })
-    ).map((t) => t.coinMint),
-  );
-  const ids = rows.filter((r) => !traded.has(r.mint)).map((r) => r.id);
+  // No dependency guards here, on purpose. Hiding is reversible (see
+  // `restoreRevived`), so a dust coin is hidden whether or not a user is attached
+  // to it — the attachment protects it from *deletion* (see `applyRetention`),
+  // not from leaving the feed. Same rule as lib/keeper.ts's dead-market gate.
+  const ids = rows.map((r) => r.id);
   if (ids.length === 0) return { candidates: rows.length, hidden: 0 };
   if (!apply) return { candidates: rows.length, hidden: 0 };
 
@@ -435,8 +496,9 @@ export type DeadMarketResult = {
  *
  * Reversible (`hiddenAt`, which VISIBLE_COIN filters on, and which the daily
  * retention run's `restoreRevived` clears the moment a token is measurable
- * again), guarded by the same dependency set as every other sweep, and refused
- * outright when the keeper itself looks down.
+ * again), with no dependency guard — a hidden row keeps the user's clip, position
+ * and follow intact, so reviving it costs nothing and the guards belong on
+ * deletion alone. Refused outright when the keeper itself looks down.
  */
 export async function hideDeadMarkets(
   opts: { limit?: number; apply?: boolean } = {},
@@ -471,11 +533,6 @@ export async function hideDeadMarkets(
       hiddenAt: null,
       isBanned: false,
       lastSyncedAt: { lt: new Date(now - DEAD_MARKET_MS) },
-      // The same dependency guards every other sweep uses: a coin with a
-      // user-uploaded clip, an open position or a follower is never touched.
-      clips: { none: { uploadedById: { not: null } } },
-      positions: { none: {} },
-      followers: { none: {} },
     },
     select: { id: true, mint: true },
     orderBy: { lastSyncedAt: "asc" },
@@ -483,16 +540,13 @@ export async function hideDeadMarkets(
   });
   if (rows.length === 0) return { candidates: 0, hidden: 0, refused: null };
 
-  const traded = new Set(
-    (
-      await prisma.trade.findMany({
-        where: { coinMint: { in: rows.map((r) => r.mint) } },
-        select: { coinMint: true },
-        distinct: ["coinMint"],
-      })
-    ).map((t) => t.coinMint),
-  );
-  const ids = rows.filter((r) => !traded.has(r.mint)).map((r) => r.id);
+  // Same rule as the dust gate: hiding is reversible, so a coin unmeasurable for
+  // days leaves the feed whether or not a user is attached to it. The attachment
+  // protects it from deletion, not from hiding. (With Jupiter now pricing the
+  // on-curve half — see lib/jup-price.ts — a coin only reaches this gate when no
+  // source can quote it at all, which is a genuine dead market rather than a
+  // coin the keeper merely failed to look at.)
+  const ids = rows.map((r) => r.id);
   if (!apply || ids.length === 0) return { candidates: ids.length, hidden: 0, refused: null };
 
   const res = await prisma.coin.updateMany({
@@ -528,32 +582,28 @@ export async function restoreRevived(opts: { limit?: number } = {}): Promise<{
     { errors: sweepErrors },
   );
 
-  // Holder counts are an independent recovery signal. A coin hidden by the dust
-  // gate is outside the keeper's holder round-robin (that walks visible coins
-  // only), so RugCheck is the only way to see it recover — and it is by-mint,
-  // hence affordable for the hidden set. Without this the hide would be a
-  // one-way door for anything below the pump.fun rankings.
-  const holderCounts = await holdersForMints(hidden.map((c) => c.mint)).catch(
-    () => new Map<string, number>(),
-  );
+  // Jupiter again — the recovery signal for the *on-curve* half and for any
+  // graduated coin that has left the pump.fun rankings (which is every graduated
+  // coin, permanently). See lib/jup-price.ts.
+  const jupFound =
+    hidden.length > 0
+      ? await fetchJupPrices(hidden.map((c) => c.mint)).catch(() => new Map())
+      : new Map();
 
-  // Dexscreener is the third signal, and the only one that can revive a
-  // *graduated* coin. Once a token graduates it leaves the pump.fun rankings for
-  // good, so the sweep above will never return it however alive it is, and its
-  // holder count can legitimately sit below MIN_HOLDERS. Without this the hide is
-  // a one-way door for exactly the coins the dead-market sweep is most likely to
-  // catch wrongly — a graduated coin the keeper could not measure for a few days
-  // (a Dexscreener blip, a batch that silently dropped it) reads as dead and is
-  // hidden, then can never come back. A pool Dexscreener answers for is proof the
-  // keeper can measure it again, which is precisely the condition it was hidden
-  // for. Restricted to graduated coins: an on-curve coin Dexscreener answers for
-  // is a pool it has not actually moved to yet, and reviving on that would fight
-  // the curve-side sweep.
+  // Dexscreener, for graduated coins only: an on-curve coin answering here is a
+  // pool it has not actually moved to yet, and reviving on that would fight the
+  // curve-side sweep.
   const gradedMints = hidden.filter((h) => h.complete).map((h) => h.mint);
   const dexFound = gradedMints.length
     ? await fetchDexQuotes(gradedMints, { batchSize: 10 }).catch(() => new Map())
     : new Map();
 
+  // A coin is revived when a source can quote it a price again — which is the
+  // exact inverse of why it was hidden. The holder count used to be the recovery
+  // signal, but a holder count is not a price: a coin can have holders and no
+  // route anywhere, and reviving on that would put a frozen number back on a buy
+  // screen. So it is out, and price availability is in. This makes "shown implies
+  // priceable" an invariant rather than a hope.
   const revived = hidden.filter((h) => {
     // The sweep only counts when it was complete: a partial sweep cannot tell a
     // dead coin from one nobody managed to look at.
@@ -565,8 +615,8 @@ export async function restoreRevived(opts: { limit?: number } = {}): Promise<{
       }
     }
     if (h.complete && dexFound.has(h.mint)) return true;
-    const n = holderCounts.get(h.mint);
-    return typeof n === "number" && n >= MIN_HOLDERS;
+    if (jupFound.has(h.mint)) return true;
+    return false;
   });
 
   if (revived.length) {

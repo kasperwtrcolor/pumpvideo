@@ -1,7 +1,7 @@
 import { Feed } from "@/components/Feed";
 import { solUsd } from "@/lib/sol-price";
 import { prisma } from "@/lib/db";
-import { VISIBLE_COIN } from "@/lib/visibility";
+import { SERVABLE_COIN } from "@/lib/visibility";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +34,13 @@ export default async function TokenWall({
   const sp = await searchParams;
   const usd = await solUsd();
 
+  // SERVABLE, not VISIBLE: this is a permalink, the canonical share target. A
+  // token hidden by retention still resolves here — the feed API already serves a
+  // specific mint regardless of the retention gate (`mint ? { mint } : ...` in
+  // app/api/feed), so a VISIBLE check only 404'd the header over clips that were
+  // about to render. A banned token still does not resolve.
   const coin = await prisma.coin.findFirst({
-    where: { ...VISIBLE_COIN, mint },
+    where: { ...SERVABLE_COIN, mint },
     select: { symbol: true, name: true },
   });
 

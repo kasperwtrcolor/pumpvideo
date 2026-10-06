@@ -65,7 +65,7 @@ async function main() {
   );
   console.log(
     `  candidates ${plan.candidates.length} ` +
-      `(scanned up to ${LIMIT}, minus coins with a trade history)`,
+      `(scanned up to ${LIMIT}; every old quiet coin, attached or not)`,
   );
   console.log(
     `  of those: ${plan.dead.length} dead ` +
@@ -74,10 +74,11 @@ async function main() {
       `floor), ${plan.alive.length} still alive`,
   );
   console.log(
-    `  held back: ${plan.skipped.userClip} with a user-uploaded clip, ` +
+    `  spared from deletion: ${plan.skipped.userClip} with a user-uploaded clip, ` +
       `${plan.skipped.position} with an open position, ` +
       `${plan.skipped.followed} followed, ` +
-      `${plan.skipped.traded} with trade history`,
+      `${plan.skipped.traded} with trade history ` +
+      `(these are still *hidden*, just never deleted)`,
   );
 
   if (!plan.actionable) {
@@ -109,7 +110,10 @@ async function main() {
     return;
   }
   console.log(
-    `  ${mode === "delete" ? "deleted" : "hidden"} ${result.applied} of ${result.planned}`,
+    `  ${mode === "delete" ? "deleted" : "hidden"} ${result.applied} of ${result.planned}` +
+      (mode === "delete" && result.spared > 0
+        ? ` (${result.spared} left hidden, not deleted — a user is attached)`
+        : ""),
   );
 
   const revived = await restoreRevived({ limit: LIMIT });

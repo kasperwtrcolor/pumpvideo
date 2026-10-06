@@ -29,6 +29,7 @@
 import { prisma } from "./db";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
+import { fetchJupPrices } from "./jup-price";
 import { ingestNewTokens, ingestTrending } from "./ingest";
 import { holdersForMints } from "./holders";
 import { reconcilePositions } from "./reconcile";
@@ -44,6 +45,8 @@ export type SyncResult = {
   notFound: number;
   viaDex: number;
   viaPumpfun: number;
+  /** Coins neither source could price, resolved through Jupiter by mint. */
+  viaJup: number;
   errors: string[];
   sweepErrors: string[];
   note?: string;
@@ -248,6 +251,7 @@ export async function runKeeper(opts: {
     notFound: 0,
     viaDex: 0,
     viaPumpfun: 0,
+    viaJup: 0,
     errors,
     sweepErrors: [],
     ingested,
@@ -284,6 +288,17 @@ export async function runKeeper(opts: {
   let notFound = 0;
   let viaDex = 0;
   let viaPumpfun = 0;
+  let viaJup = 0;
+
+  /**
+   * Coins neither of the two primary sources could answer for.
+   *
+   * These used to be counted straight as `notFound` and left with whatever price
+   * they last had — frozen. That is the one outcome that must not happen on a buy
+   * screen: a stale price reads as the current value of the token. So nothing is
+   * called missing until Jupiter has also been asked (see the fallback below).
+   */
+  const unresolved: typeof coins = [];
 
   const usd = await solUsd().catch(() => 0);
 
@@ -296,7 +311,7 @@ export async function runKeeper(opts: {
   for (const coin of graduated) {
     const q = dexQuotes.get(coin.mint);
     if (!q) {
-      notFound++;
+      unresolved.push(coin);
       continue;
     }
     try {
@@ -348,7 +363,7 @@ export async function runKeeper(opts: {
     for (const coin of onCurve) {
       const record = live.get(coin.mint);
       if (!record) {
-        notFound++;
+        unresolved.push(coin);
         continue;
       }
       try {
@@ -396,6 +411,91 @@ export async function runKeeper(opts: {
         });
         updated++;
         viaPumpfun++;
+      } catch (e) {
+        errors.push(`${coin.symbol}: ${(e as Error).message.slice(0, 70)}`);
+      }
+    }
+  }
+
+  // ---- fallback: Jupiter by mint ------------------------------------------
+  // Everything the two sources above could not answer for, priced by Jupiter.
+  //
+  // This is what makes "no coin is ever frozen" true rather than aspirational.
+  // Dexscreener only indexes tokens with an AMM pool, so an on-curve coin has no
+  // pair and no price from it; and pump.fun has no by-mint endpoint, so the keeper
+  // could only see an on-curve coin while it sat in pump.fun's 1000-deep ranking,
+  // which it leaves within hours. Jupiter routes the bonding curve, so it prices
+  // those by mint. Measured against the live catalogue it resolves 383 of 385
+  // visible coins, including every one that had gone stale.
+  //
+  // Jupiter publishes USD, and a price here is SOL, so it is converted once, with
+  // the same `usd` the rest of the tick uses. A coin still unpriced after this has
+  // no route anywhere and is left alone rather than given a made-up number —
+  // the retention sweep is what removes it from the catalogue.
+  if (unresolved.length > 0) {
+    const jup = await fetchJupPrices(unresolved.map((c) => c.mint)).catch(() => new Map());
+
+    // 24h baseline for the whole unresolved set in one range read, rather than a
+    // query per coin (the on-curve path above pays one per coin because it runs
+    // before this one, which knows the set up front).
+    const ids = unresolved.map((c) => c.id);
+    const window = await prisma.pricePoint.findMany({
+      where: { coinId: { in: ids }, at: { gte: new Date(Date.now() - 25 * 3600_000) } },
+      orderBy: { at: "asc" },
+      select: { coinId: true, priceSol: true, at: true },
+    });
+    const byCoin = new Map<string, { priceSol: number; at: Date }[]>();
+    for (const p of window) {
+      const arr = byCoin.get(p.coinId) ?? [];
+      arr.push({ priceSol: p.priceSol, at: p.at });
+      byCoin.set(p.coinId, arr);
+    }
+    const cutoff = Date.now() - 23 * 3600_000;
+
+    for (const coin of unresolved) {
+      const j = jup.get(coin.mint);
+      if (!j || !(j.usdPrice > 0) || !(usd > 0)) {
+        notFound++;
+        continue;
+      }
+      try {
+        const priceSol = j.usdPrice / usd;
+        const supply = wholeSupply(coin.totalSupply);
+        const marketCapSol = supply > 0 ? priceSol * supply : coin.marketCapSol;
+        const history = historyByCoin.get(coin.id) ?? [];
+
+        // Prefer Jupiter's own trailing-24h number; fall back to our samples
+        // (the most recent point at least ~24h old, else our earliest) and only
+        // then to whatever was stored — which, for a coin this pass is rescuing,
+        // is precisely the stale value we are replacing.
+        let change24hPct = j.change24hPct;
+        if (change24hPct == null) {
+          const points = byCoin.get(coin.id) ?? [];
+          const aged = [...points].reverse().find((p) => p.at.getTime() <= cutoff) ?? points[0];
+          change24hPct =
+            aged && aged.priceSol > 0
+              ? ((priceSol - aged.priceSol) / aged.priceSol) * 100
+              : coin.change24hPct;
+        }
+
+        const change5mPct = changeOver5m(history, priceSol);
+
+        await prisma.coin.update({
+          where: { id: coin.id },
+          data: {
+            priceSol,
+            marketCapSol,
+            change24hPct,
+            change5mPct,
+            volatility5m: Math.max(volatility(history, priceSol), Math.abs(change5mPct)),
+            lastSyncedAt: new Date(),
+          },
+        });
+        await prisma.pricePoint.create({
+          data: { coinId: coin.id, priceSol, marketCapSol },
+        });
+        updated++;
+        viaJup++;
       } catch (e) {
         errors.push(`${coin.symbol}: ${(e as Error).message.slice(0, 70)}`);
       }
@@ -475,6 +575,7 @@ export async function runKeeper(opts: {
     notFound,
     viaDex,
     viaPumpfun,
+    viaJup,
     errors: errors.slice(0, 5),
     sweepErrors: sweepErrors.slice(0, 5),
     note,

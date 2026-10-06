@@ -51,8 +51,11 @@ async function main() {
 
   console.log(
     `sync: checked ${r.checked}, updated ${r.updated} ` +
-      `(dex ${r.viaDex} / pumpfun ${r.viaPumpfun}), notFound ${r.notFound}`,
+      `(dex ${r.viaDex} / pumpfun ${r.viaPumpfun} / jup ${r.viaJup}), notFound ${r.notFound}`,
   );
+  if (r.deadMarketsHidden) {
+    console.log(`dead-markets: hidden ${r.deadMarketsHidden} unmeasurable coins`);
+  }
   if (r.holdersUpdated) {
     console.log(`holders: refreshed ${r.holdersUpdated}`);
   }

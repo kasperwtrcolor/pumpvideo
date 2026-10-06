@@ -4,7 +4,7 @@ import { withTrader, serializeCoin, serializeClip } from "@/lib/api";
 import { rawTokensToUi } from "@/lib/bonding-curve";
 import { resolveTrader } from "@/lib/session";
 import { publicAuthor } from "@/lib/social";
-import { VISIBLE_COIN } from "@/lib/visibility";
+import { SERVABLE_COIN } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,11 @@ export async function GET(
   const { symbol } = await ctx.params;
   const { trader, created } = await resolveTrader();
 
+  // SERVABLE, not VISIBLE: a coin hidden by retention is out of discovery but is
+  // still reachable by direct link — from a position in the portfolio, a saved
+  // clip, or a shared URL. A banned coin is not served at all.
   const coin = await prisma.coin.findFirst({
-    where: { ...VISIBLE_COIN, OR: [{ symbol }, { mint: symbol }] },
+    where: { ...SERVABLE_COIN, OR: [{ symbol }, { mint: symbol }] },
     include: { clips: { orderBy: { rank: "desc" }, take: 12 } },
   });
 
