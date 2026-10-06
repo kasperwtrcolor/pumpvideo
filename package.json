@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "ingest": "tsx scripts/ingest.ts",
+    "stonkfun": "tsx scripts/stonkfun.ts",
     "clips": "tsx scripts/gen-clips.ts",
     "sync": "tsx scripts/sync.ts",
     "verify-assets": "tsx scripts/verify-assets.ts",
