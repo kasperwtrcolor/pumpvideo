@@ -115,6 +115,9 @@ export function serializeCoin(c: {
   twitter: string | null;
   telegram: string | null;
   website: string | null;
+  quoteSymbol: string | null;
+  quoteName: string | null;
+  quoteIconUrl: string | null;
   launchedAt: Date | null;
   createdAt: Date;
   virtualSol: string;
@@ -137,6 +140,12 @@ export function serializeCoin(c: {
     twitter: c.twitter,
     telegram: c.telegram,
     website: c.website,
+    /// The counterparty this coin is quoted against, or null for a SOL pair
+    /// (every pump.fun and Dexscreener coin). The badge renders the mark, so the
+    /// icon rides along with the name rather than being fetched client-side.
+    quoteSymbol: c.quoteSymbol,
+    quoteName: c.quoteName,
+    quoteIconUrl: c.quoteIconUrl,
     launchedAt: c.launchedAt,
     /// When this row entered our catalogue. The age shown in the UI falls back
     /// to this when pump.fun gave us no `launchedAt`, so every coin can display

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { CoinDTO } from "@/lib/types";
 import { CoinAvatar } from "../CoinAvatar";
+import { PairBadge } from "../PairBadge";
 import { useTrader } from "../TraderProvider";
 import { useTick } from "@/lib/use-tick";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, sym, timeAgo } from "@/lib/format";
@@ -82,6 +83,16 @@ export function TradePanel({ coin, onTrade }: { coin: CoinDTO | null; onTrade: (
                 <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-black text-accent">
                   GRAD
                 </span>
+              )}
+              {/* The pair, when the coin is not quoted in SOL — the same label the
+                  feed and the coin page carry, so the trade view cannot show a
+                  coin without the one fact that defines it. */}
+              {coin.quoteSymbol && (
+                <PairBadge
+                  label={coin.quoteName ?? coin.quoteSymbol}
+                  title={`paired with ${coin.quoteName ?? coin.quoteSymbol}`}
+                  iconUrl={coin.quoteIconUrl}
+                />
               )}
             </div>
           </div>

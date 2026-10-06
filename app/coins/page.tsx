@@ -173,6 +173,9 @@ export default function CoinsPage() {
               change24hPct={c.change24hPct}
               launchedAt={c.launchedAt}
               complete={c.complete}
+              quoteSymbol={c.quoteSymbol}
+              quoteName={c.quoteName}
+              quoteIconUrl={c.quoteIconUrl}
               clip={c.clip}
               solUsd={solUsd}
             />

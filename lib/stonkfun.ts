@@ -148,6 +148,149 @@ export function stonkCaption(l: StonkLaunch): string {
   return l.quoteSymbol ? `paired with ${l.quoteSymbol}` : l.name;
 }
 
+/**
+ * The counterparty a StonkFun coin is quoted against, resolved to something a
+ * badge can render: a symbol, a human name, and a logo.
+ *
+ * The launches API gives us `quoteSymbol` ("NVDAX") and `quoteMint`, but nothing
+ * that says what NVDAX *is* — and the label is meant to show the counterparty's
+ * mark, which a bare ticker cannot. Jupiter's token metadata carries all three
+ * (measured: `NVDAx` / `NVIDIA xStock` / an xstocks-metadata logo), keyed by the
+ * quote mint we already hold, so the resolution is one bulk call per ingest.
+ *
+ * WHERE THIS CANNOT HELP: the endpoint is a token *search*, so it only knows
+ * mints it lists. A quote mint Jupiter has never indexed resolves to nothing and
+ * the coin simply keeps its symbol-only label — the same degradation as a coin
+ * ingested while Jupiter was unreachable. It never blocks ingestion.
+ */
+export type QuoteAsset = {
+  mint: string;
+  symbol: string;
+  /** Human name, e.g. "NVIDIA xStock". Falls back to the symbol. */
+  name: string;
+  iconUrl: string | null;
+};
+
+const TOKENS_API = "https://lite-api.jup.ag/tokens/v2/search";
+
+/** Queries per search call. The endpoint accepted 50 in testing; 40 is margin. */
+const MAX_QUERIES = 40;
+
+type RawToken = {
+  id?: string;
+  symbol?: string;
+  name?: string;
+  icon?: string;
+  /** Used only to break symbol ties — see resolveQuoteAssetsBySymbol. */
+  liquidity?: number;
+  mcap?: number;
+  holderCount?: number;
+};
+
+/**
+ * Resolve quote *mints* to their asset metadata.
+ *
+ * Keyed by mint, which is exact: the search returns the token whose `id` equals
+ * the query. A mint absent from the result map has no Jupiter listing.
+ */
+export async function resolveQuoteAssets(
+  mints: string[],
+): Promise<Map<string, QuoteAsset>> {
+  const unique = [...new Set(mints.filter(Boolean))];
+  const rows = await searchTokens(unique);
+  const out = new Map<string, QuoteAsset>();
+  for (const mint of unique) {
+    const t = rows.find((r) => r.id === mint);
+    if (t) out.set(mint, toAsset(t, mint));
+  }
+  return out;
+}
+
+/**
+ * Resolve quote *symbols* to their asset metadata.
+ *
+ * Only used to backfill coins ingested before the quote columns existed, whose
+ * quote mint was never stored — their only surviving trace of the pair is the
+ * symbol in `description` ("paired with NVDAX"). Keyed by the uppercased symbol.
+ *
+ * A symbol is not unique, and this is not hypothetical: searching "NVDAX" returns
+ * six tokens, five of them impostors wearing the same ticker, and the impostors
+ * include one named "Nvidia" that would beat the real one on an exact-match rule.
+ * So the candidates are ranked by liquidity — the real NVIDIA xStock holds $5.0M
+ * against the impostor's $549, and liquidity is exactly the property a launchpad
+ * is choosing between when it picks what to pair against. The winner's mint is
+ * written back, so after one pass the coin resolves by mint and cannot drift.
+ */
+export async function resolveQuoteAssetsBySymbol(
+  symbols: string[],
+): Promise<Map<string, QuoteAsset>> {
+  const unique = [...new Set(symbols.filter(Boolean).map((s) => s.toUpperCase()))];
+  const rows = await searchTokens(unique, { batch: false });
+  const out = new Map<string, QuoteAsset>();
+  for (const sym of unique) {
+    const exact = rows.filter((r) => (r.symbol ?? "").toUpperCase() === sym);
+    exact.sort(
+      (a, b) =>
+        (b.liquidity ?? 0) - (a.liquidity ?? 0) ||
+        (b.mcap ?? 0) - (a.mcap ?? 0) ||
+        (b.holderCount ?? 0) - (a.holderCount ?? 0),
+    );
+    const best = exact[0];
+    if (best?.id) out.set(sym, toAsset(best, best.id));
+  }
+  return out;
+}
+
+async function searchTokens(
+  queries: string[],
+  opts: { batch?: boolean } = {},
+): Promise<RawToken[]> {
+  // Comma-batching is a quirk of this endpoint: it works for mint addresses and
+  // silently returns NOTHING for tickers (measured: "NVDAX,GOOGLX" -> 0 rows,
+  // "NVDAX" -> 20). So a symbol lookup must go one request per symbol, and only
+  // the mint path may batch.
+  const { batch = true } = opts;
+  const out: RawToken[] = [];
+  const batches = batch
+    ? chunk(queries, MAX_QUERIES)
+    : queries.map((q) => [q]);
+
+  for (let i = 0; i < batches.length; i++) {
+    const group = batches[i];
+    try {
+      const res = await fetch(`${TOKENS_API}?query=${group.join(",")}`, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) continue;
+      const body = (await res.json()) as RawToken[];
+      if (Array.isArray(body)) out.push(...body);
+    } catch {
+      // Unreachable Jupiter is not a reason to refuse an ingest: the coin lands
+      // with its symbol-only label and the next run fills the mark in.
+    }
+    if (i + 1 < batches.length) await sleep(150);
+  }
+  return out;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function toAsset(t: RawToken, mint: string): QuoteAsset {
+  const symbol = (t.symbol || mint.slice(0, 6)).trim();
+  return {
+    mint: t.id ?? mint,
+    symbol,
+    name: (t.name || symbol).trim(),
+    iconUrl: t.icon ?? null,
+  };
+}
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }

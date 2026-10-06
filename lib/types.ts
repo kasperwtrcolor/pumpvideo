@@ -18,6 +18,10 @@ export type CoinDTO = {
   twitter: string | null;
   telegram: string | null;
   website: string | null;
+  /** The counterparty this coin is quoted against; null for a SOL pair. */
+  quoteSymbol: string | null;
+  quoteName: string | null;
+  quoteIconUrl: string | null;
   /** pump.fun launch time, when the source gave us one. */
   launchedAt: string | null;
   /** When the coin entered our catalogue — the age fallback when `launchedAt` is null. */
@@ -107,6 +111,10 @@ export type TokenHitDTO = {
   marketCapSol: number;
   change24hPct: number;
   complete: boolean;
+  /** The pair this token is quoted against; null for a SOL pair. */
+  quoteSymbol: string | null;
+  quoteName: string | null;
+  quoteIconUrl: string | null;
   isFollowing: boolean;
 };
 

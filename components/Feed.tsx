@@ -14,6 +14,7 @@ import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } f
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
+import { PairBadge } from "./PairBadge";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { getUnread, subscribeUnread } from "@/lib/unread";
 import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
@@ -1178,6 +1179,17 @@ function ClipPanel({
           <span className="rounded-md bg-black/55 px-2.5 py-1 text-[13px] font-black tracking-wide text-white">
             ${sym(coin.symbol)}
           </span>
+          {/* What this coin is quoted against, when that is not SOL. Sits beside
+              the ticker because the pair is a property of the coin, not a stat
+              about it, and the mark is what makes it legible mid-swipe. */}
+          {coin.quoteSymbol && (
+            <PairBadge
+              tone="overlay"
+              label={coin.quoteName ?? coin.quoteSymbol}
+              title={`paired with ${coin.quoteName ?? coin.quoteSymbol}`}
+              iconUrl={coin.quoteIconUrl}
+            />
+          )}
           <span
             className={`rounded-md px-2 py-1 text-[11px] font-bold tabular-nums ${
               change >= 0 ? "bg-up/20 text-up" : "bg-down/20 text-down"

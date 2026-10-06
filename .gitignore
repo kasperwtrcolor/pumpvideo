@@ -59,4 +59,5 @@ next-env.d.ts
 
 # tooling artifacts (Neon agent skills install)
 .agents/
+.hermes/
 skills-lock.json

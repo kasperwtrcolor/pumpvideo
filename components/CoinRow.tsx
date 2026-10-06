@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CoinAvatar } from "./CoinAvatar";
+import { PairBadge } from "./PairBadge";
 import { fmtPctAbs, fmtUsd, sym, timeAgo } from "@/lib/format";
 
 /**
@@ -29,6 +30,9 @@ export function CoinRow({
   change24hPct,
   launchedAt,
   complete,
+  quoteSymbol,
+  quoteName,
+  quoteIconUrl,
   clip,
   solUsd,
   trailing,
@@ -46,6 +50,10 @@ export function CoinRow({
   launchedAt?: string | Date | null;
   /** Graduated badge. */
   complete?: boolean;
+  /** The pair this coin is quoted against, when it is not SOL. See PairBadge. */
+  quoteSymbol?: string | null;
+  quoteName?: string | null;
+  quoteIconUrl?: string | null;
   /** A ready clip to preview inside the avatar, when the caller has one. */
   clip?: string | null;
   solUsd: number;
@@ -88,7 +96,7 @@ export function CoinRow({
               </span>
             )}
           </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[13px] text-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[13px] text-muted">
             <span className="font-bold text-ink/70">${sym(symbol)}</span>
             {launchedAt ? (
               <>
@@ -98,6 +106,15 @@ export function CoinRow({
                 <span className="tabular-nums">{timeAgo(launchedAt)}</span>
               </>
             ) : null}
+            {/* The pair, when it is not SOL. Rides the secondary line rather than
+                the name line so it never pushes the name out of the row. */}
+            {quoteSymbol && (
+              <PairBadge
+                label={quoteName ?? quoteSymbol}
+                title={`paired with ${quoteName ?? quoteSymbol}`}
+                iconUrl={quoteIconUrl}
+              />
+            )}
           </div>
         </div>
 

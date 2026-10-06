@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { CoinAvatar } from "./CoinAvatar";
+import { PairBadge } from "./PairBadge";
 import { fmtPrice, fmtSol, fmtPct, fmtUsd, sym } from "@/lib/format";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
@@ -225,8 +226,21 @@ export function BuySheet({
             className="h-10 w-10 rounded-full border border-line"
           />
           <div className="min-w-0">
-            <div className="truncate text-sm font-bold">
-              {coin.name} <span className="text-muted">${sym(coin.symbol)}</span>
+            <div className="flex items-center gap-1.5 truncate text-sm font-bold">
+              <span className="truncate">
+                {coin.name} <span className="text-muted">${sym(coin.symbol)}</span>
+              </span>
+              {/* The pair, on the screen where money changes hands. A coin quoted
+                  against NVDAX is not a SOL pair, and that is the single thing a
+                  buyer most needs to see before signing. */}
+              {coin.quoteSymbol && (
+                <PairBadge
+                  className="shrink-0"
+                  label={coin.quoteName ?? coin.quoteSymbol}
+                  title={`paired with ${coin.quoteName ?? coin.quoteSymbol}`}
+                  iconUrl={coin.quoteIconUrl}
+                />
+              )}
             </div>
             <div className="text-[11px] text-muted tabular-nums">
               {fmtPrice(coin.priceSol)} SOL · MC {fmtUsd(coin.marketCapSol * solUsd)}

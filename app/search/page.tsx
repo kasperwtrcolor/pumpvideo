@@ -220,6 +220,9 @@ function TokenRow({ t }: { t: TokenHitDTO }) {
       marketCapSol={t.marketCapSol}
       change24hPct={t.change24hPct}
       complete={t.complete}
+      quoteSymbol={t.quoteSymbol}
+      quoteName={t.quoteName}
+      quoteIconUrl={t.quoteIconUrl}
       solUsd={solUsd}
       trailing={<TokenFollowButton mint={t.mint} initialFollowing={t.isFollowing} compact />}
     />

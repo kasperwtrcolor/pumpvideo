@@ -7,6 +7,7 @@ import { BuySheet } from "@/components/BuySheet";
 import type { CoinDTO, ClipDTO } from "@/lib/types";
 import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { PairBadge } from "@/components/PairBadge";
 import { Mascot } from "@/components/Mascots";
 import { TokenFollowButton } from "@/components/FollowButton";
 
@@ -126,6 +127,18 @@ export default function CoinPage({ params }: PageProps<"/coin/[symbol]">) {
               </span>
             )}
           </div>
+
+          {/* What this coin is quoted against, when it is not SOL. On the detail
+              page there is room to name the counterparty in full and show its
+              mark, which is the whole premise of a launch like this — a bare
+              ticker in the header would say less. */}
+          {coin.quoteSymbol && (
+            <PairBadge
+              className="mt-3"
+              label={`paired with ${coin.quoteName ?? coin.quoteSymbol}`}
+              iconUrl={coin.quoteIconUrl}
+            />
+          )}
 
           {/* Following a token puts every clip bound to it — whoever uploaded
               them — on the viewer's Following wall, and notifies them when a new

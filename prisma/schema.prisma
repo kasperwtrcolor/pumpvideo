@@ -93,6 +93,24 @@ model Coin {
   telegram    String?
   website     String?
 
+  /// What this coin is paired against, when the pair is not SOL.
+  ///
+  /// Only StonkFun coins have this: every launch there is quoted against
+  /// *something else* — usually a tokenized equity (NVDAX, TSLAX, MCDX), but
+  /// sometimes another memecoin — so the pair is a fact about the coin the SOL
+  /// rails cannot express, and it is the launchpad's whole premise. Stored as
+  /// four columns rather than a bare symbol because the label is meant to show
+  /// the counterparty's mark: `quoteIconUrl` is the logo the badge renders.
+  ///
+  /// Null for every pump.fun and Dexscreener coin, which are all SOL pairs.
+  /// `quoteName`/`quoteIconUrl` come from Jupiter's token metadata (see
+  /// `resolveQuoteAssets` in lib/stonkfun.ts), which is also the only place a
+  /// human-readable name for a bare `NVDAX` symbol exists.
+  quoteMint    String?
+  quoteSymbol  String?
+  quoteName    String?
+  quoteIconUrl String?
+
   launchedAt   DateTime?
   lastSyncedAt DateTime @default(now())
   createdAt    DateTime @default(now())

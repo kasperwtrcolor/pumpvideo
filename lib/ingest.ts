@@ -27,7 +27,14 @@ import { prisma } from "./db";
 import { fetchCoins, toCoinRecord, type PumpCoin } from "./pumpfun";
 import { fetchTrending } from "./dexscreener";
 import { fetchJupPrices } from "./jup-price";
-import { fetchStonkLaunches, fetchTokenSupplyRaw } from "./stonkfun";
+import {
+  fetchStonkLaunches,
+  fetchTokenSupplyRaw,
+  resolveQuoteAssets,
+  resolveQuoteAssetsBySymbol,
+  type QuoteAsset,
+  type StonkLaunch,
+} from "./stonkfun";
 import { solUsd } from "./sol-price";
 import { artUrl } from "./art-url";
 
@@ -497,6 +504,14 @@ export async function ingestStonkfun(opts: {
     .filter((l) => (jup.get(l.mint)?.liquidityUsd ?? 0) >= floor)
     .slice(0, opts.limit);
 
+  // The pair label. One bulk lookup for every quote mint this window uses — the
+  // window shares a handful of counterparties (mostly NVDAX), so this is a single
+  // call for the whole tick. Best-effort: a coin whose counterparty Jupiter does
+  // not list still lands, just with its symbol-only label.
+  const quotes = await resolveQuoteAssets(
+    qualified.map((l) => l.quoteMint).filter((m): m is string => Boolean(m)),
+  ).catch(() => new Map());
+
   let added = 0;
   let clips = 0;
   let skipped = 0;
@@ -512,6 +527,7 @@ export async function ingestStonkfun(opts: {
     const priceSol = quote.usdPrice / usd;
     const marketCapSol = priceSol * (Number(supply) / 1e6);
     const launchedAt = l.createdAt;
+    const asset = l.quoteMint ? quotes.get(l.quoteMint) : undefined;
 
     const record = {
       provider: "STONKFUN",
@@ -525,6 +541,13 @@ export async function ingestStonkfun(opts: {
       change24hPct: quote.change24hPct ?? 0,
       poolAddress: l.pool,
       creator: l.creator,
+      // What the coin is quoted against. The launchpad's own ticker is the
+      // fallback; Jupiter's is preferred because it is the canonical casing that
+      // matches the logo it returned.
+      quoteMint: l.quoteMint,
+      quoteSymbol: asset?.symbol ?? l.quoteSymbol,
+      quoteName: asset?.name ?? null,
+      quoteIconUrl: asset?.iconUrl ?? null,
       // Still on the launchpad's own curve, not a graduated AMM: Dexscreener
       // indexes no pair for them at all (measured: 0 pairs), which is the same
       // signal pump.fun gives with `complete: false`. So the dust gate and the
@@ -563,5 +586,100 @@ export async function ingestStonkfun(opts: {
     }
   }
 
+  // Pair labels for coins ingested before these columns existed. Self-healing
+  // rather than a one-off script: it runs inside the same opt-in step, converges
+  // in a tick or two, and afterwards costs one indexed query and no network.
+  await backfillStonkQuotes(launches).catch(() => 0);
+
   return { considered: launches.length, kept: qualified.length, added, clips, skipped };
+}
+
+/**
+ * Fill the pair label on StonkFun coins ingested before the quote columns
+ * existed.
+ *
+ * Two routes, in order of trust:
+ *
+ *   1. The launch is still in the rolling window (`launches`), so the pair comes
+ *      straight from the launchpad — base mint to quote mint, no inference.
+ *   2. The launch has aged out of the window, and the only surviving record of
+ *      the pair is the symbol the ingest wrote into `description` ("paired with
+ *      NVDAX"). Symbols collide, so the symbol route ranks candidates by
+ *      liquidity (see resolveQuoteAssetsBySymbol) and is the reason the resolved
+ *      mint is written back: after one pass the coin carries `quoteMint` and the
+ *      fallback is never needed again.
+ *
+ * A row stays uncorrected when neither route resolves — the counterparty is not
+ * in Jupiter's list — and is retried on the next tick. It keeps the symbol-only
+ * label meanwhile.
+ */
+export async function backfillStonkQuotes(launches?: StonkLaunch[]): Promise<number> {
+  const rows = await prisma.coin.findMany({
+    where: { provider: "STONKFUN", quoteSymbol: null },
+    select: { id: true, mint: true, description: true },
+    take: 200,
+  });
+  if (rows.length === 0) return 0;
+
+  // Route 1 — exact, from the launchpad itself.
+  const window = new Map<string, StonkLaunch>();
+  for (const l of launches ?? []) window.set(l.mint, l);
+  const windowed = rows.filter((r) => window.get(r.mint)?.quoteMint);
+  const byMint = windowed.length
+    ? await resolveQuoteAssets(
+        windowed.map((r) => window.get(r.mint)!.quoteMint as string),
+      ).catch(() => new Map<string, QuoteAsset>())
+    : new Map<string, QuoteAsset>();
+
+  // Route 2 — symbol inference, for the rows the window no longer covers.
+  const symbols = rows
+    .filter((r) => !window.get(r.mint)?.quoteMint)
+    .map((r) => pairSymbol(r.description))
+    .filter((s): s is string => Boolean(s));
+  const bySymbol = symbols.length
+    ? await resolveQuoteAssetsBySymbol(symbols).catch(() => new Map<string, QuoteAsset>())
+    : new Map<string, QuoteAsset>();
+
+  let fixed = 0;
+  for (const r of rows) {
+    const launch = window.get(r.mint);
+    let data: {
+      quoteMint: string | null;
+      quoteSymbol: string | null;
+      quoteName: string | null;
+      quoteIconUrl: string | null;
+    } | null = null;
+
+    if (launch?.quoteMint) {
+      const a = byMint.get(launch.quoteMint);
+      data = {
+        quoteMint: launch.quoteMint,
+        quoteSymbol: a?.symbol ?? launch.quoteSymbol ?? launch.quoteMint.slice(0, 6),
+        quoteName: a?.name ?? null,
+        quoteIconUrl: a?.iconUrl ?? null,
+      };
+    } else {
+      const sym = pairSymbol(r.description);
+      const a = sym ? bySymbol.get(sym.toUpperCase()) : undefined;
+      if (a) {
+        data = {
+          quoteMint: a.mint,
+          quoteSymbol: a.symbol,
+          quoteName: a.name,
+          quoteIconUrl: a.iconUrl,
+        };
+      }
+    }
+
+    if (!data) continue;
+    await prisma.coin.update({ where: { id: r.id }, data });
+    fixed++;
+  }
+  return fixed;
+}
+
+/** "paired with NVDAX" -> "NVDAX". The ingest's own caption is the only trace. */
+function pairSymbol(description: string | null): string | null {
+  const s = description?.replace(/^paired with\s+/i, "").trim();
+  return s || null;
 }

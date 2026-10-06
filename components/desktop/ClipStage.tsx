@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import type { FeedItemDTO } from "@/lib/types";
 import { CoinAvatar } from "../CoinAvatar";
+import { PairBadge } from "../PairBadge";
 import { HeartIcon, CommentIcon, ShareIcon, VolumeIcon } from "../Icons";
 import { fmtUsd, sym } from "@/lib/format";
 
@@ -184,6 +185,16 @@ function Panel({
             <span className="truncate text-[15px] font-black text-white text-glow">
               {coin.name} <span className="text-white/60">${sym(coin.symbol)}</span>
             </span>
+            {/* The pair, when the coin is not quoted in SOL. */}
+            {coin.quoteSymbol && (
+              <PairBadge
+                tone="overlay"
+                className="shrink-0"
+                label={coin.quoteName ?? coin.quoteSymbol}
+                title={`paired with ${coin.quoteName ?? coin.quoteSymbol}`}
+                iconUrl={coin.quoteIconUrl}
+              />
+            )}
           </Link>
           {item.caption?.trim() && (
             <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-white/85 text-glow">

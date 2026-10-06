@@ -120,6 +120,9 @@ export async function GET(req: NextRequest) {
       marketCapSol: c.marketCapSol,
       change24hPct: c.change24hPct,
       complete: c.complete,
+      quoteSymbol: c.quoteSymbol,
+      quoteName: c.quoteName,
+      quoteIconUrl: c.quoteIconUrl,
       isFollowing: tokenFollowSet.has(c.id),
     })),
   });
