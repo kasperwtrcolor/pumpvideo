@@ -30,7 +30,7 @@ import { prisma } from "./db";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
 import { fetchJupPrices } from "./jup-price";
-import { ingestNewTokens, ingestTrending } from "./ingest";
+import { ingestNewTokens, ingestTrending, ingestStonkfun, describeError } from "./ingest";
 import { holdersForMints } from "./holders";
 import { reconcilePositions } from "./reconcile";
 import type { ReconcileResult } from "./reconcile";
@@ -64,6 +64,14 @@ export type SyncResult = {
     added: number;
     clips: number;
     dropped: number;
+  };
+  /** Present only when the StonkFun step ran — see `opts.stonkfun`. */
+  stonkfun?: {
+    considered: number;
+    kept: number;
+    added: number;
+    clips: number;
+    skipped: number;
   };
   /** Positions brought back in step with the chain, or null if the pass failed. */
   reconciled: ReconcileResult | null;
@@ -190,6 +198,15 @@ export async function runKeeper(opts: {
    * serverless route shares this function and should not be writing in bulk.
    */
   dust?: number;
+  /**
+   * How many StonkFun launches to ingest this tick, or 0/undefined to skip.
+   *
+   * Same slot as `ingest` and `trending` — a discovery step that runs before the
+   * catalog is read, so a coin it lands gets a price on the same tick. Off by
+   * default: the serverless route shares this function and must not discover in
+   * bulk. See lib/stonkfun.ts for the source and `ingestStonkfun` for the gate.
+   */
+  stonkfun?: number;
 }): Promise<SyncResult> {
   // Ingest runs FIRST, so coins discovered on this tick are part of the catalog
   // that the refresh below walks — they get a real price immediately instead of
@@ -219,6 +236,17 @@ export async function runKeeper(opts: {
       trending = await ingestTrending({ limit: opts.trending });
     } catch (e) {
       errors.push(`trending: ${(e as Error).message.slice(0, 90)}`);
+    }
+  }
+
+  // StonkFun bands: same slot, same rule. Its coins are discovered from a
+  // rolling window of the latest 100 launches, so this is a poll, not a page.
+  let stonkfun: SyncResult["stonkfun"];
+  if (!opts.mints?.length && opts.stonkfun && opts.stonkfun > 0) {
+    try {
+      stonkfun = await ingestStonkfun({ limit: opts.stonkfun });
+    } catch (e) {
+      errors.push(`stonkfun: ${describeError(e).slice(0, 90)}`);
     }
   }
 
@@ -256,6 +284,7 @@ export async function runKeeper(opts: {
     sweepErrors: [],
     ingested,
     trending,
+    stonkfun,
     reconciled,
   };
   if (coins.length === 0) return empty;
@@ -581,6 +610,7 @@ export async function runKeeper(opts: {
     note,
     ingested,
     trending,
+    stonkfun,
     reconciled,
     holdersUpdated,
     dustHidden,

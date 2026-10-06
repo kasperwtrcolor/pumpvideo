@@ -38,6 +38,7 @@ const TRENDING = arg("trending", 0);
 const RECONCILE = arg("reconcile", 0);
 const HOLDERS = arg("holders", 0);
 const DUST = arg("dust", 0);
+const STONKFUN = arg("stonkfun", 0);
 
 async function main() {
   const r = await runKeeper({
@@ -47,6 +48,7 @@ async function main() {
     reconcile: RECONCILE,
     holders: HOLDERS,
     dust: DUST,
+    stonkfun: STONKFUN,
   });
 
   console.log(
@@ -74,6 +76,15 @@ async function main() {
     console.log(
       `trending: board ${r.trending.kept}/${r.trending.considered}, ` +
         `+${r.trending.added} coins, +${r.trending.clips} clips, -${r.trending.dropped} dropped`,
+    );
+  }
+  if (r.stonkfun) {
+    // `kept` after the liquidity gate, so a wide window that added nothing is
+    // visibly a gate decision rather than a broken source.
+    console.log(
+      `stonkfun: window ${r.stonkfun.considered}, ${r.stonkfun.kept} cleared the ` +
+        `floor, +${r.stonkfun.added} coins, +${r.stonkfun.clips} clips, ` +
+        `${r.stonkfun.skipped} skipped`,
     );
   }
   if (r.reconciled && r.reconciled.drifted > 0) {

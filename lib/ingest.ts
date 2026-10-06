@@ -26,6 +26,8 @@
 import { prisma } from "./db";
 import { fetchCoins, toCoinRecord, type PumpCoin } from "./pumpfun";
 import { fetchTrending } from "./dexscreener";
+import { fetchJupPrices } from "./jup-price";
+import { fetchStonkLaunches, fetchTokenSupplyRaw } from "./stonkfun";
 import { solUsd } from "./sol-price";
 import { artUrl } from "./art-url";
 
@@ -258,7 +260,7 @@ export async function ingestNewTokens(opts: { limit: number }): Promise<{
  * `ingest: $EXIT failed: ` with nothing after it, which is undiagnosable: it
  * looks identical whether the cause was a timeout, a DNS failure, or a bug.
  */
-function describeError(e: unknown): string {
+export function describeError(e: unknown): string {
   if (e instanceof AggregateError) {
     const inner = e.errors.map((x) => describeError(x)).join("; ");
     return `${e.name}${e.message ? `: ${e.message}` : ""}${inner ? ` [${inner}]` : ""}`;
@@ -414,4 +416,152 @@ export async function ingestTrending(opts: {
     clips,
     dropped: dropped.count,
   };
+}
+
+/**
+ * Dust floor for StonkFun ingestion, in USD of Jupiter liquidity.
+ *
+ * Why a floor at all: `GET /api/launches` is a rolling window of the *latest
+ * 100* launches and StonkFun produces roughly 127 an hour, so taking it
+ * wholesale would pour ~3,000 coins a day into the feed. Worse, most of them are
+ * shells — measured on 2026-10-06, the median launch held **$22** of liquidity,
+ * the 75th percentile $61, and only 10 of 100 cleared $500. Pemp's own ingest
+ * floor (MIN_MCAP_SOL) cannot catch this: StonkFun coins start around $3,385
+ * (~28 SOL), right on the boundary.
+ *
+ * Liquidity, not market cap, is the honest gate here. A launch market cap is
+ * whatever the dev types in, and the API only publishes the value from launch
+ * time — but liquidity is what someone else has actually deposited, and it is
+ * the only number that says a stranger is willing to trade against a coin.
+ *
+ * $500 keeps the ~10% with a real seed behind them. That window rolls every ~47
+ * minutes, so a coin that starts tiny and gains traction inside the window is
+ * still picked up on a later poll — which is the behaviour we want, rather than
+ * ingesting the shell at minute zero.
+ */
+export const STONKFUN_MIN_LIQ_USD = 500;
+
+/**
+ * StonkFun ingest — a third launch source, after pump.fun and Dexscreener.
+ *
+ * The pipeline is deliberately identical to the other two so a StonkFun coin is
+ * indistinguishable from any other once it is in: same `Coin` shape, same
+ * art-only placeholder clip, same ranking score. The differences are three, and
+ * all of them follow from the source:
+ *
+ *   1. Discovery is their rolling `/api/launches` window (see lib/stonkfun.ts).
+ *   2. The dust gate is Jupiter liquidity, because these coins have no SOL pair
+ *      and so no Dexscreener volume to gate on (see STONKFUN_MIN_LIQ_USD).
+ *   3. Supply is read on-chain (`getTokenSupply`), because the API publishes no
+ *      supply and every derived market cap depends on it.
+ *
+ * Pricing is NOT done here. A newly inserted coin is part of the catalog the
+ * keeper reads on the same tick, and the Jupiter fallback pass prices it then —
+ * one pricing path, not two.
+ *
+ * An empty or unreadable window changes nothing (same rule as `ingestTrending`):
+ * "we could not read it" must never be written down as "there is nothing there".
+ */
+export async function ingestStonkfun(opts: {
+  limit: number;
+  minLiquidityUsd?: number;
+}): Promise<{
+  considered: number;
+  kept: number;
+  added: number;
+  clips: number;
+  skipped: number;
+}> {
+  const launches = await fetchStonkLaunches();
+  if (launches.length === 0) {
+    return { considered: 0, kept: 0, added: 0, clips: 0, skipped: 0 };
+  }
+
+  const usd = await solUsd().catch(() => 0);
+
+  // Only mints we do not already have, in one query for the whole window.
+  const known = new Set(
+    (
+      await prisma.coin.findMany({
+        where: { mint: { in: launches.map((l) => l.mint) } },
+        select: { mint: true },
+      })
+    ).map((c) => c.mint),
+  );
+  const fresh = launches.filter((l) => !known.has(l.mint));
+
+  // One Jupiter call prices the whole candidate set, and doubles as the gate.
+  const jup = await fetchJupPrices(fresh.map((l) => l.mint)).catch(() => new Map());
+  const floor = opts.minLiquidityUsd ?? STONKFUN_MIN_LIQ_USD;
+  const qualified = fresh
+    .filter((l) => (jup.get(l.mint)?.liquidityUsd ?? 0) >= floor)
+    .slice(0, opts.limit);
+
+  let added = 0;
+  let clips = 0;
+  let skipped = 0;
+
+  for (const l of qualified) {
+    const supply = await fetchTokenSupplyRaw(l.mint);
+    const quote = jup.get(l.mint);
+    if (!supply || !quote || usd <= 0) {
+      skipped++;
+      continue;
+    }
+
+    const priceSol = quote.usdPrice / usd;
+    const marketCapSol = priceSol * (Number(supply) / 1e6);
+    const launchedAt = l.createdAt;
+
+    const record = {
+      provider: "STONKFUN",
+      name: l.name,
+      symbol: l.symbol,
+      description: l.quoteSymbol ? `paired with ${l.quoteSymbol}` : null,
+      imageUrl: l.logoUrl,
+      totalSupply: supply,
+      priceSol,
+      marketCapSol,
+      change24hPct: quote.change24hPct ?? 0,
+      poolAddress: l.pool,
+      creator: l.creator,
+      // Still on the launchpad's own curve, not a graduated AMM: Dexscreener
+      // indexes no pair for them at all (measured: 0 pairs), which is the same
+      // signal pump.fun gives with `complete: false`. So the dust gate and the
+      // curve ranking treat them like any other fresh launch.
+      complete: false,
+      lastSyncedAt: new Date(),
+      ...(launchedAt ? { launchedAt } : {}),
+    };
+
+    const coin = await prisma.coin.upsert({
+      where: { mint: l.mint },
+      create: { mint: l.mint, ...record },
+      update: record,
+    });
+    added++;
+
+    const thumb = artUrl(coin.imageUrl);
+    const existingClip = await prisma.clip.findFirst({
+      where: { coinId: coin.id },
+      select: { id: true },
+    });
+    if (!existingClip) {
+      await prisma.clip.create({
+        data: {
+          coinId: coin.id,
+          source: "INGEST",
+          videoUrl: null,
+          thumbUrl: thumb,
+          caption: (l.name || l.symbol).slice(0, 90),
+          author: "unclaimed",
+          rank: rankFor({ marketCapSol, launchedAt, complete: false }),
+          ready: true,
+        },
+      });
+      clips++;
+    }
+  }
+
+  return { considered: launches.length, kept: qualified.length, added, clips, skipped };
 }

@@ -1,4 +1,6 @@
 import { fetchDexQuotes } from "./dexscreener";
+import { fetchJupPrices } from "./jup-price";
+import { solUsd } from "./sol-price";
 import { prisma } from "./db";
 import { TOKENS_PER_UNIT } from "./bonding-curve";
 
@@ -80,9 +82,28 @@ export async function quotesFor(mints: string[]): Promise<Record<string, Quote>>
     /* fall through to the base layer */
   }
 
+  // Jupiter fills in everything Dexscreener structurally cannot see: on-curve
+  // coins (no AMM pool yet) and coins whose pool is not quoted in SOL at all —
+  // StonkFun pairs with tokenized stocks, so its coins have no SOL pair and would
+  // otherwise sit frozen at the keeper's five-minute price while every pump.fun
+  // coin beside them ticked. Same source the keeper uses, so the ticker and the
+  // stored price agree.
+  const unseen = stale.filter((m) => !live.has(m));
+  let jup: Awaited<ReturnType<typeof fetchJupPrices>> = new Map();
+  if (unseen.length > 0) {
+    try {
+      jup = await fetchJupPrices(unseen);
+    } catch {
+      /* fall through to the base layer */
+    }
+  }
+  // Jupiter publishes USD; everything downstream is SOL.
+  const usd = jup.size > 0 ? await solUsd().catch(() => 0) : 0;
+
   for (const m of stale) {
     const b = base.get(m);
     const l = live.get(m);
+    const j = jup.get(m);
     let entry: Entry | null = null;
 
     if (l && Number.isFinite(l.priceSol) && l.priceSol > 0) {
@@ -100,6 +121,16 @@ export async function quotesFor(mints: string[]): Promise<Record<string, Quote>>
         priceSol: l.priceSol,
         marketCapSol,
         change24hPct: Number.isFinite(l.change24hPct) ? l.change24hPct : (b?.change24hPct ?? 0),
+        live: true,
+        at: now,
+      };
+    } else if (j && Number.isFinite(j.usdPrice) && j.usdPrice > 0 && usd > 0) {
+      const priceSol = j.usdPrice / usd;
+      const supply = b ? Number(b.totalSupply) / Number(TOKENS_PER_UNIT) : 0;
+      entry = {
+        priceSol,
+        marketCapSol: supply > 0 ? priceSol * supply : (b?.marketCapSol ?? 0),
+        change24hPct: j.change24hPct ?? b?.change24hPct ?? 0,
         live: true,
         at: now,
       };

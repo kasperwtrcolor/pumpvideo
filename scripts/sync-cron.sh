@@ -68,10 +68,19 @@ set -a; source "$ENV_FILE"; set +a
 # database work — no external calls — so it runs every tick and keeps the
 # catalogue clean continuously instead of once a day. The 500 is a bound, not a
 # target: on a healthy catalogue this is 0.
+# `--stonkfun 12` adds a third launch source: StonkFun (stonkfun.xyz), a Solana
+# launchpad whose coins are paired with anything — in practice a tokenized stock
+# (NVDAX, TSLAX, OPENAI), so they have no SOL pair, no Dexscreener quote and no
+# pump.fun listing, and were invisible to us entirely. They are discovered from
+# the site's own rolling window of the latest 100 launches and gated on Jupiter
+# liquidity, because the median launch holds $22 of it (see STONKFUN_MIN_LIQ_USD
+# in lib/ingest.ts). The 12 is a per-tick ceiling, not a target: the window rolls
+# every ~47 minutes, so a poll every 5 minutes sees each launch about nine times
+# and nothing is missed. They land in the main feed like any other coin.
 TREND=0
 if [ "$((10#$(date +%M)))" -lt 5 ]; then TREND=40; fi
 
-if ! timeout 300 npm run sync --silent -- --limit 600 --ingest 8 --trending "$TREND" --reconcile 50 --holders 50 --dust 500; then
+if ! timeout 300 npm run sync --silent -- --limit 600 --ingest 8 --trending "$TREND" --stonkfun 12 --reconcile 50 --holders 50 --dust 500; then
   echo "[$(date -Is)] sync failed or timed out" >&2
   exit 1
 fi
