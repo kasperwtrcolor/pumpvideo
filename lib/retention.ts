@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { MIN_MCAP_SOL } from "./ingest";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
+import { fetchDexQuotes } from "./dexscreener";
 import { MIN_HOLDERS, holdersForMints } from "./holders";
 
 /**
@@ -516,7 +517,7 @@ export async function restoreRevived(opts: { limit?: number } = {}): Promise<{
 }> {
   const hidden = await prisma.coin.findMany({
     where: { hiddenAt: { not: null } },
-    select: { id: true, mint: true },
+    select: { id: true, mint: true, complete: true },
     take: opts.limit ?? DEFAULT_LIMIT,
   });
   if (hidden.length === 0) return { checked: 0, restored: 0, sweepErrors: [] };
@@ -536,6 +537,23 @@ export async function restoreRevived(opts: { limit?: number } = {}): Promise<{
     () => new Map<string, number>(),
   );
 
+  // Dexscreener is the third signal, and the only one that can revive a
+  // *graduated* coin. Once a token graduates it leaves the pump.fun rankings for
+  // good, so the sweep above will never return it however alive it is, and its
+  // holder count can legitimately sit below MIN_HOLDERS. Without this the hide is
+  // a one-way door for exactly the coins the dead-market sweep is most likely to
+  // catch wrongly — a graduated coin the keeper could not measure for a few days
+  // (a Dexscreener blip, a batch that silently dropped it) reads as dead and is
+  // hidden, then can never come back. A pool Dexscreener answers for is proof the
+  // keeper can measure it again, which is precisely the condition it was hidden
+  // for. Restricted to graduated coins: an on-curve coin Dexscreener answers for
+  // is a pool it has not actually moved to yet, and reviving on that would fight
+  // the curve-side sweep.
+  const gradedMints = hidden.filter((h) => h.complete).map((h) => h.mint);
+  const dexFound = gradedMints.length
+    ? await fetchDexQuotes(gradedMints, { batchSize: 10 }).catch(() => new Map())
+    : new Map();
+
   const revived = hidden.filter((h) => {
     // The sweep only counts when it was complete: a partial sweep cannot tell a
     // dead coin from one nobody managed to look at.
@@ -546,6 +564,7 @@ export async function restoreRevived(opts: { limit?: number } = {}): Promise<{
         if (rec.complete || rec.marketCapSol >= MIN_MCAP_SOL) return true;
       }
     }
+    if (h.complete && dexFound.has(h.mint)) return true;
     const n = holderCounts.get(h.mint);
     return typeof n === "number" && n >= MIN_HOLDERS;
   });

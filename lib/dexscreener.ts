@@ -11,7 +11,16 @@
  * indexes them permanently and answers by mint. That makes the graduated half of
  * the catalog reliably refreshable, which is also the half with real market caps.
  *
- * Free tier allows ~300 req/min, and the endpoint takes up to 30 mints per call.
+ * Free tier allows ~300 req/min. The docs say the endpoint takes up to 30 mints
+ * per call, but it does not honour that in practice: a 30-mint request comes
+ * back with pairs for only ~half the mints, and *which* half changes run to run
+ * — the same mint that is missing now returns on the next call. Measured
+ * against the live catalogue, coverage was 143/218 at batchSize 30 and 185/218
+ * at batchSize 10. A mint the sweep misses is not refreshed, so it keeps a
+ * frozen price and a frozen 24h change on the screen, which is exactly what
+ * this client exists to prevent. So the default batch is deliberately small,
+ * and anything a pass does not resolve is re-asked in small groups before it is
+ * called absent.
  */
 
 const BASE = "https://api.dexscreener.com/latest/dex/tokens";
@@ -83,13 +92,14 @@ export async function fetchDexQuotes(
   mints: string[],
   opts: { batchSize?: number; attempts?: number } = {},
 ): Promise<Map<string, DexQuote>> {
-  const { batchSize = 30, attempts = 3 } = opts;
+  // 10, not the documented 30 — see the header. Small batches are the whole
+  // reason this returns most of the catalogue instead of half of it.
+  const { batchSize = 10, attempts = 3 } = opts;
   const out = new Map<string, DexQuote>();
 
-  for (let i = 0; i < mints.length; i += batchSize) {
-    const batch = mints.slice(i, i + batchSize);
+  /** One request for one batch, with the transient retry. Null on permanent failure. */
+  async function fetchBatch(batch: string[]): Promise<DexPair[] | null> {
     let pairs: DexPair[] | null = null;
-
     for (let attempt = 0; attempt < attempts && pairs === null; attempt++) {
       if (attempt > 0) await sleep(500 * 2 ** (attempt - 1) + Math.random() * 300);
       try {
@@ -105,19 +115,28 @@ export async function fetchDexQuotes(
         // network blip — retry
       }
     }
+    return pairs;
+  }
 
-    if (!pairs) continue;
-
-    // Keep the deepest SOL-quoted pair per mint; thin/wrong-quote pairs are noise.
+  /**
+   * Fold a response into `out`, keeping the deepest SOL-quoted pair per mint.
+   *
+   * Thin/wrong-quote pairs are noise: `priceNative` is meaningless unless the
+   * quote is SOL. Returns how many *requested* mints it resolved, which is what
+   * the recovery pass uses to decide what is still missing.
+   */
+  function absorb(pairs: DexPair[], wanted: string[]): number {
+    const wantedSet = new Set(wanted);
     const best = new Map<string, DexPair>();
     for (const p of pairs) {
       const mint = p.baseToken?.address;
-      if (!mint) continue;
+      if (!mint || !wantedSet.has(mint)) continue;
       if (p.quoteToken?.address !== WSOL) continue;
       const prev = best.get(mint);
       if (!prev || (p.liquidity?.usd ?? 0) > (prev.liquidity?.usd ?? 0)) best.set(mint, p);
     }
 
+    let resolved = 0;
     for (const [mint, p] of best) {
       const priceSol = Number(p.priceNative);
       if (!Number.isFinite(priceSol) || priceSol <= 0) continue;
@@ -132,9 +151,32 @@ export async function fetchDexQuotes(
         change5mPct: p.priceChange?.m5 ?? 0,
         dexId: p.dexId,
       });
+      resolved++;
     }
+    return resolved;
+  }
 
+  for (let i = 0; i < mints.length; i += batchSize) {
+    const batch = mints.slice(i, i + batchSize);
+    const pairs = await fetchBatch(batch);
+    if (pairs) absorb(pairs, batch);
     if (i + batchSize < mints.length) await sleep(250); // stay under the limiter
+  }
+
+  // Recovery pass. The endpoint under-delivers non-deterministically, so the
+  // misses from the first pass include mints that *do* have a pair and simply
+  // were not in the response. Re-ask just those, in small groups, once. Any
+  // still missing after this are genuinely pair-less (dead pool or unindexed),
+  // which is a real answer and the caller treats it as one.
+  const missing = mints.filter((m) => !out.has(m));
+  if (missing.length > 0 && missing.length < mints.length) {
+    const RECOVERY_BATCH = 5;
+    for (let i = 0; i < missing.length; i += RECOVERY_BATCH) {
+      const batch = missing.slice(i, i + RECOVERY_BATCH);
+      const pairs = await fetchBatch(batch);
+      if (pairs) absorb(pairs, batch);
+      if (i + RECOVERY_BATCH < missing.length) await sleep(200);
+    }
   }
 
   return out;
