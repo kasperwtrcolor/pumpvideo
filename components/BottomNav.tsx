@@ -55,9 +55,9 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Primary"
-      className="z-50 shrink-0 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+      className="z-50 shrink-0 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5"
     >
-      <ul className="flex items-stretch">
+      <ul className="nav-bar flex items-stretch gap-0.5 rounded-[26px] p-1.5">
         {ITEMS.map((it) => {
           const active = it.href === "/" ? path === "/" : path.startsWith(it.href);
           return (
@@ -66,11 +66,18 @@ export function BottomNav() {
                 href={it.href}
                 aria-label={it.label}
                 aria-current={active ? "page" : undefined}
-                className={`press flex h-14 items-center justify-center ${
+                className={`press relative flex h-12 items-center justify-center rounded-[20px] transition-colors ${
                   active ? "text-accent" : "text-muted hover:text-ink"
                 }`}
               >
-                <span className={pop === it.href ? "nav-pop inline-flex" : "inline-flex"}>
+                {/* The lit backdrop behind the active tab. Rendered only when
+                    active, so the halo arrives and leaves with the tab. */}
+                {active && <span aria-hidden className="nav-active absolute inset-0 rounded-[20px]" />}
+                <span
+                  className={`relative ${
+                    pop === it.href ? "nav-pop inline-flex" : "inline-flex"
+                  }`}
+                >
                   {it.href === "/" && <HomeIcon className="h-7 w-7" />}
                   {it.href === "/coins" && <ChartIcon className="h-7 w-7" />}
                   {it.href === "/upload" && <PlusIcon className="h-7 w-7" />}

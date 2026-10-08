@@ -283,3 +283,13 @@ export function RocketIcon({ className }: IconProps) {
   );
 }
 
+/** A clip: a screen with a play triangle punched into it. */
+export function ClipIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={1.9} aria-hidden>
+      <rect x="3.4" y="4.8" width="17.2" height="14.4" rx="2.8" />
+      <path d="M10.1 9.3 14.7 12l-4.6 2.7z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+

@@ -7,7 +7,7 @@ import { DesktopFeed } from "./desktop/DesktopFeed";
 import { DesktopLanding } from "./desktop/DesktopLanding";
 import { getWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
 import { useIsDesktop } from "@/lib/use-desktop";
-import type { LandingTile } from "@/lib/landing";
+import type { LandingTile, LaunchTile } from "@/lib/landing";
 
 /**
  * The home screen, per viewport.
@@ -20,9 +20,11 @@ import type { LandingTile } from "@/lib/landing";
 export function HomeView({
   initialSolUsd,
   tiles,
+  launches,
 }: {
   initialSolUsd: number;
   tiles: LandingTile[];
+  launches: LaunchTile[];
 }) {
   const desktop = useIsDesktop();
   const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
@@ -31,7 +33,7 @@ export function HomeView({
     return (
       <>
         <DesktopFeed />
-        {open && <DesktopLanding tiles={tiles} />}
+        {open && <DesktopLanding tiles={tiles} launches={launches} />}
       </>
     );
   }
@@ -39,7 +41,7 @@ export function HomeView({
   return (
     <>
       <Feed initialSolUsd={initialSolUsd} />
-      <Landing tiles={tiles} />
+      <Landing tiles={tiles} launches={launches} />
     </>
   );
 }

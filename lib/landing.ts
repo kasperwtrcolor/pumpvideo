@@ -74,3 +74,61 @@ export async function landingTiles(): Promise<LandingTile[]> {
   }
   return tiles;
 }
+
+/**
+ * A coin launched *through* Pemp.
+ *
+ * Distinct from `LandingTile`: this is not scenery, it is a link to a real coin
+ * someone minted here, so it carries the identity (mint, symbol, name) and the
+ * age the showcase shows. `provider: "SELF"` is the marker — every ingested coin
+ * is PUMPFUN/STONKFUN/DEXSCREENER, so SELF unambiguously means "launched here".
+ */
+export type LaunchTile = {
+  mint: string;
+  symbol: string;
+  name: string;
+  art: string | null;
+  /** The launch video, when the creator gave one — the front door to the coin. */
+  video: string | null;
+  /** Milliseconds since the launch, for the "2h ago" label. */
+  ageMs: number;
+};
+
+/**
+ * The newest coins launched through Pemp, newest first.
+ *
+ * Empty is the expected state for a while and is not an error — the showcase
+ * renders an invitation instead. Kept small: this is a proof that the thing
+ * works, not a second index (that is what /coins is for).
+ */
+export async function launchShowcase(limit = 12): Promise<LaunchTile[]> {
+  const coins = await prisma.coin.findMany({
+    where: { ...VISIBLE_COIN, provider: "SELF" },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: {
+      mint: true,
+      symbol: true,
+      name: true,
+      imageUrl: true,
+      createdAt: true,
+      clips: {
+        where: { ready: true, videoUrl: { not: null } },
+        orderBy: { rank: "desc" },
+        take: 1,
+        select: { videoUrl: true },
+      },
+    },
+  });
+
+  const now = Date.now();
+  return coins.map((c) => ({
+    mint: c.mint,
+    symbol: c.symbol,
+    name: c.name,
+    art: artUrl(c.imageUrl),
+    video: c.clips[0]?.videoUrl ?? null,
+    ageMs: now - c.createdAt.getTime(),
+  }));
+}
+

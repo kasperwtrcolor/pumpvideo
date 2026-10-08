@@ -18,7 +18,7 @@ import { PairBadge } from "./PairBadge";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { getUnread, subscribeUnread } from "@/lib/unread";
 import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
-import { CommentIcon, HeartIcon, PlusIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
+import { ClipIcon, CommentIcon, HeartIcon, ShareIcon, ShuffleIcon, StarIcon, VolumeIcon } from "./Icons";
 import { LiveDot, Sparkline } from "./PriceTicker";
 import { CultureIcon } from "./CultureIcon";
 
@@ -1296,14 +1296,18 @@ function ClipPanel({
               The hard part of posting used to be finding the mint of the coin
               you were looking at and pasting it into the upload form. From here
               the address is carried in the URL, so the form arrives with the
-              token already bound and the video is the only decision left. */}
+              token already bound and the video is the only decision left.
+
+              Solid accent rather than a glass pill: it is the second thing you
+              can do with a coin and it was reading as chrome. The raised shadow
+              gives it the same "pressable" weight as the buy button beside it. */}
           <Link
             href={`/upload?token=${encodeURIComponent(coin.mint)}`}
             title={`Upload a clip for $${sym(coin.symbol)}`}
             aria-label={`Upload a clip for $${sym(coin.symbol)}`}
-            className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-black/45 px-3 py-3 text-[11px] font-bold text-white/85 active:scale-[0.98]"
+            className="clip-btn flex items-center gap-1.5 rounded-2xl bg-accent px-3.5 py-3 text-[12px] font-black tracking-wide text-black active:scale-[0.97]"
           >
-            <PlusIcon className="h-4 w-4" />
+            <ClipIcon className="h-4 w-4" />
             clip
           </Link>
           <button

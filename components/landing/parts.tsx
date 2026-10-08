@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { LandingTile } from "@/lib/landing";
+import Link from "next/link";
+import type { LandingTile, LaunchTile } from "@/lib/landing";
 import type { FeedItemDTO } from "@/lib/types";
 import { fmtPctAbs, fmtSol } from "@/lib/format";
+import { RocketIcon } from "@/components/Icons";
 
 /**
  * The pieces the landing shares between its phone and its wide arrangement.
@@ -267,6 +269,94 @@ export function Phone({ reels, index }: { reels: Reel[]; index: number }) {
           <div className="phone-island" />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** `2m ago` / `3h ago` / `4d ago` from a millisecond age. */
+function ago(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+/**
+ * The coins launched *through* Pemp.
+ *
+ * A different claim from the rest of the landing: the wall and the strip show
+ * what the app indexes, this shows what the app *makes*. So it never falls back
+ * to placeholders — a made-up launch would be a lie about the one thing here
+ * that is ours. An empty list renders an invitation instead, which is also the
+ * honest state of a launchpad that nobody has used yet.
+ *
+ * A horizontal rail rather than a grid so the phone and the wide screen share
+ * it: a few cards on a phone, a longer run on a desktop, same component.
+ */
+export function LaunchShowcase({ launches }: { launches: LaunchTile[] }) {
+  if (launches.length === 0) {
+    return (
+      <div className="mt-7 rounded-2xl border border-dashed border-line bg-panel/60 px-5 py-9 text-center">
+        <RocketIcon className="mx-auto h-9 w-9 text-accent" />
+        <p className="mt-3 text-[15px] font-black tracking-tight">No coins launched yet.</p>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
+          Drop a video, name it, and it goes on-chain in under a minute. Yours could be the
+          first one here.
+        </p>
+        <Link
+          href="/launch"
+          className="burn-gradient mt-5 inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-[13.5px] font-black tracking-wide text-black active:scale-[0.99]"
+        >
+          <RocketIcon className="h-4 w-4" />
+          Launch a coin
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="no-scrollbar mt-7 flex snap-x gap-3 overflow-x-auto pb-1">
+      {launches.map((l) => (
+        <Link
+          key={l.mint}
+          href={`/t/${l.mint}`}
+          className="group w-[148px] shrink-0 snap-start overflow-hidden rounded-2xl border border-line bg-panel transition hover:border-accent/50"
+        >
+          <div className="relative aspect-square w-full overflow-hidden bg-gradient-to-br from-panel2 via-panel to-bg">
+            {l.video ? (
+              <video
+                src={l.video}
+                muted
+                loop
+                autoPlay
+                playsInline
+                preload="metadata"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : l.art ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={l.art}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-br from-accent2/40 via-panel2 to-panel" />
+            )}
+            <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white/90 backdrop-blur">
+              {ago(l.ageMs)}
+            </span>
+          </div>
+          <div className="px-3 py-2.5">
+            <div className="truncate text-[13px] font-black">${l.symbol}</div>
+            <div className="truncate text-[11px] text-muted">{l.name}</div>
+          </div>
+        </Link>
+      ))}
     </div>
   );
 }

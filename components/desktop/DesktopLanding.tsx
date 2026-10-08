@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import type { LandingTile } from "@/lib/landing";
+import type { LandingTile, LaunchTile } from "@/lib/landing";
 import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
 import { LogoLockup } from "../Logo";
 import { MascotStack } from "../Mascots";
-import { XIcon } from "../Icons";
+import { RocketIcon, XIcon } from "../Icons";
 import { X_HANDLE, X_URL } from "@/lib/social";
 import { fmtCount, fmtSol } from "@/lib/format";
-import { Check, CoinChip, FeeRow, Phone, Stat, useLandingData } from "../landing/parts";
+import { Check, CoinChip, FeeRow, LaunchShowcase, Phone, Stat, useLandingData } from "../landing/parts";
 
 /**
  * The desktop landing — the launch film, as a deck.
@@ -33,7 +33,7 @@ import { Check, CoinChip, FeeRow, Phone, Stat, useLandingData } from "../landing
  * Everything shown is the catalogue's own art and numbers — the reels inside the
  * phone and the coin chip are the tokens we are actually serving.
  */
-export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
+export function DesktopLanding({ tiles, launches }: { tiles: LandingTile[]; launches: LaunchTile[] }) {
   const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
   const enter = useCallback(() => setWelcomeOpen(false), []);
   const { reels, slides, stats } = useLandingData(tiles);
@@ -285,8 +285,30 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
             </ul>
           </Panel>
 
-          {/* panel 5 — where a buy goes */}
+          {/* panel 5 — launch your own */}
           <Panel index={4} side={-1} ghost register={register}>
+            <span className="deck-label">04 — Launch your own</span>
+            <h2 className="mt-5 text-[clamp(30px,4.2vw,58px)] font-black leading-[0.95] tracking-tight">
+              Or make <span className="text-accent">the coin</span>.
+            </h2>
+            <p className="mt-5 max-w-[46ch] text-[15px] leading-relaxed text-muted">
+              Upload a video, give it a name, and it mints on-chain — the film becomes the
+              coin&apos;s face. You pay the launch fee; the creator fee is yours on every trade.
+            </p>
+            <div className="mt-7">
+              <LaunchShowcase launches={launches} />
+            </div>
+            <Link
+              href="/launch"
+              className="press mt-6 inline-flex items-center gap-2 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3 text-[13px] font-black text-accent"
+            >
+              <RocketIcon className="h-4 w-4" />
+              Launch a coin
+            </Link>
+          </Panel>
+
+          {/* panel 6 — where a buy goes */}
+          <Panel index={5} side={-1} ghost register={register}>
             <span className="deck-label">Where a buy goes</span>
             <h2 className="mt-5 text-[clamp(30px,4.2vw,58px)] font-black leading-[0.95] tracking-tight">
               Creators get <span className="text-accent">paid</span>.
@@ -317,8 +339,8 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
             </p>
           </Panel>
 
-          {/* panel 6 — close */}
-          <Panel index={5} side={1} ghost={false} register={register}>
+          {/* panel 7 — close */}
+          <Panel index={6} side={1} ghost={false} register={register}>
             <span className="deck-label">Pemp.fun</span>
             <h2 className="mt-5 text-[clamp(32px,4.6vw,62px)] font-black leading-[0.94] tracking-tight">
               Watch it. Buy it. <span className="text-accent">In one thumb.</span>
@@ -406,7 +428,7 @@ export function DesktopLanding({ tiles }: { tiles: LandingTile[] }) {
 /* ---------- pieces ---------- */
 
 /** Which side of the stage each panel's phone holds: +1 right, -1 left. */
-const SIDE = [1, 1, -1, 1, -1, 1] as const;
+const SIDE = [1, 1, -1, 1, -1, -1, 1] as const;
 
 /** Interpolate the phone's side smoothly across the deck position. */
 function sideAt(t: number): number {
@@ -421,6 +443,7 @@ const SECTIONS = [
   { key: "feed", label: "The feed" },
   { key: "coin", label: "The coin" },
   { key: "buy", label: "The buy" },
+  { key: "launch", label: "Launch yours" },
   { key: "money", label: "Where a buy goes" },
   { key: "close", label: "Open" },
 ] as const;

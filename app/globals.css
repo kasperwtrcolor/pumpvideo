@@ -270,6 +270,54 @@ body {
   animation: nav-pop 320ms var(--ease-standard);
 }
 
+/*
+ * The phone's tab bar: a floating, translucent capsule.
+ *
+ * The 3-D read is stacked light, not a border — a hairline of light on the top
+ * edge (as if a surface catches it), a dark seam on the bottom, and a soft drop
+ * shadow underneath so the bar sits *above* the screen rather than in it. The
+ * background is translucent and blurred, so the page tints through without ever
+ * competing with the icons.
+ */
+.nav-bar {
+  background: color-mix(in oklab, var(--color-panel) 60%, transparent);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 12px 32px -12px rgba(0, 0, 0, 0.9),
+    0 2px 6px -1px rgba(0, 0, 0, 0.55);
+}
+
+/*
+ * The active tab's glow. A soft accent halo welling up from the top of the tab,
+ * plus a faint lift — it reads as the icon being lit rather than boxed.
+ */
+.nav-active {
+  background: radial-gradient(
+    130% 120% at 50% 0%,
+    color-mix(in oklab, var(--color-accent) 26%, transparent),
+    transparent 72%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 20px -8px color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+
+/*
+ * The feed's "clip" button. Same raised-light treatment as the tab bar, in the
+ * accent colour: a bright top edge, a darker seam below, and a green bloom that
+ * spills onto the video behind it — so the one coloured control on the frame is
+ * unmistakably the one you press to post.
+ */
+.clip-btn {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.22),
+    0 10px 22px -10px color-mix(in oklab, var(--color-accent) 90%, transparent);
+}
+
 /** The reshuffle icon acknowledging its own tap with one full turn. */
 @keyframes spin-once {
   from {

@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { useAuth } from "./AuthBridge";
-import type { LandingTile } from "@/lib/landing";
+import type { LandingTile, LaunchTile } from "@/lib/landing";
 import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
-import { PersonIcon, XIcon } from "./Icons";
+import { PersonIcon, RocketIcon, XIcon } from "./Icons";
 import { LogoMark } from "./Logo";
 import { MascotStack } from "./Mascots";
 import { X_HANDLE, X_URL } from "@/lib/social";
 import { fmtSol } from "@/lib/format";
-import { Check, CoinChip, FeeRow, Phone, Reveal, useLandingData } from "./landing/parts";
+import { Check, CoinChip, FeeRow, LaunchShowcase, Phone, Reveal, useLandingData } from "./landing/parts";
 
 /**
  * The welcome screen — the first thing a signed-out visitor sees, and the thing
@@ -50,7 +51,7 @@ const PER_COLUMN = 9;
 /** The phone cycles through its clips on a timer — there is no scroll stage here. */
 const REEL_MS = 4000;
 
-export function Landing({ tiles }: { tiles: LandingTile[] }) {
+export function Landing({ tiles, launches }: { tiles: LandingTile[]; launches: LaunchTile[] }) {
   const { authenticated, enabled, login } = useAuth();
   const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
   const { reels, slides, stats } = useLandingData(tiles);
@@ -246,6 +247,31 @@ export function Landing({ tiles }: { tiles: LandingTile[] }) {
               <Check>Quoted on Jupiter, the deepest route Solana has.</Check>
               <Check>You sign it in your own wallet. Pemp never holds your keys or your funds.</Check>
             </ul>
+          </Reveal>
+        </section>
+
+        <section className="border-t border-line px-6 py-14">
+          <Reveal>
+            <span className="deck-label">04 — Launch your own</span>
+            <h2 className="mt-5 text-[clamp(28px,8vw,38px)] font-black leading-[0.98] tracking-tight">
+              Or make <span className="text-accent">the coin</span>.
+            </h2>
+            <p className="mt-4 text-[14px] leading-relaxed text-muted">
+              Upload a video, give it a name, and it mints on-chain — the film becomes the
+              coin&apos;s face. You pay the launch fee; the creator fee is yours on every trade.
+            </p>
+          </Reveal>
+          <Reveal delay={90}>
+            <LaunchShowcase launches={launches} />
+          </Reveal>
+          <Reveal delay={120} className="mt-5">
+            <Link
+              href="/launch"
+              className="inline-flex items-center gap-2 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3 text-[13px] font-black text-accent active:scale-[0.99]"
+            >
+              <RocketIcon className="h-4 w-4" />
+              Launch a coin
+            </Link>
           </Reveal>
         </section>
 
