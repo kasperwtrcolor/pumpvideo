@@ -21,6 +21,14 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { PUMP_SDK, OnlinePumpSdk, PUMP_PROGRAM_ID } from "@pump-fun/pump-sdk";
+import type { PumpQuoteAccounts } from "@pump-fun/pump-sdk";
+import {
+  CurveDepthExceededError,
+  QuoteBondingCurveNotEligibleError,
+  QuoteCurveAwaitingMigrationError,
+  QuoteReservesOutOfRangeError,
+  UnsupportedQuoteMintError,
+} from "@pump-fun/pump-sdk";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 /** Wrapped SOL — pump's native quote. */
@@ -75,15 +83,26 @@ export function buildMetadata(input: LaunchMetadataInput): string {
  * Resolve a quote mint for the create instruction.
  *
  * SOL is pump's default (no account, no whitelist check). Anything else has to
- * be admitted by `Global` or the `QuoteControl` PDA — `resolveQuoteMint` is the
- * authority on that, and it also hands back the program that owns the mint,
- * which every quote-side ATA must be derived with.
+ * be admitted by one of three routes, and `resolveQuoteMint` is the authority
+ * on all of them: the `Global` whitelist (USDC), the `QuoteControl` PDA
+ * (pump.fun-listed assets such as xStocks), or — since the 4.0.0 program —
+ * *being a pump coin itself*. That last route is the "pair your coin with any
+ * other coin" feature: any live pump.fun coin can quote a new coin. It also
+ * hands back the program that owns the mint, which every quote-side ATA is
+ * derived with, plus the currency account the create needs when the quote is a
+ * live pump curve (`pumpQuote`).
  */
 export async function resolveQuote(
   connection: Connection,
   pair: PoolPair,
   customMint?: string,
-): Promise<{ quoteMint: PublicKey | undefined; quoteTokenProgram: PublicKey; label: string }> {
+): Promise<{
+  quoteMint: PublicKey | undefined;
+  quoteTokenProgram: PublicKey;
+  /** Set only when the quote is a pump coin (neither listed on `Global` nor in QuoteControl). */
+  pumpQuote?: PumpQuoteAccounts;
+  label: string;
+}> {
   if (pair === "SOL") {
     return { quoteMint: undefined, quoteTokenProgram: TOKEN_PROGRAM_ID, label: "SOL" };
   }
@@ -104,13 +123,39 @@ export async function resolveQuote(
     return {
       quoteMint: mint,
       quoteTokenProgram: resolved.quoteTokenProgram,
+      // A pump coin is admitted through its own curve, which the create has to
+      // carry. `accounts` is empty until the coin has migrated; passing the
+      // (possibly empty) object is what makes the builder append the curve.
+      pumpQuote:
+        resolved.source === "pumpCoin" ? (resolved.pumpQuote?.accounts ?? {}) : undefined,
       label: pair === "USDC" ? "USDC" : mint.toBase58(),
     };
-  } catch {
-    // UnsupportedQuoteMintError (or an RPC hiccup) — surface one clear message
-    // rather than leaking an SDK error code at the creator.
-    throw new Error("that mint is not an accepted pool pair on pump.fun");
+  } catch (e) {
+    throw new Error(resolveQuoteMessage(e));
   }
+}
+
+/**
+ * One clear sentence for why a mint cannot be a pool pair, rather than an SDK
+ * error code. The typed errors come off `resolveQuoteMint`.
+ */
+function resolveQuoteMessage(e: unknown): string {
+  if (e instanceof UnsupportedQuoteMintError) {
+    return "that mint is not a pump.fun coin, so it can't be paired with — pick a coin launched on pump.fun";
+  }
+  if (e instanceof CurveDepthExceededError) {
+    return "that coin is already paired against another token, so it can't be used as a pair";
+  }
+  if (e instanceof QuoteBondingCurveNotEligibleError) {
+    return "that coin can't be used as a pool pair";
+  }
+  if (e instanceof QuoteCurveAwaitingMigrationError) {
+    return "that coin just finished its bonding curve and is still migrating — try again in a moment";
+  }
+  if (e instanceof QuoteReservesOutOfRangeError) {
+    return "that coin has too little liquidity to be used as a pair";
+  }
+  return "that mint is not an accepted pool pair on pump.fun";
 }
 
 /**
@@ -132,13 +177,18 @@ export async function buildCreateTransaction(opts: {
   rewardTo: RewardTo;
   quoteMint?: PublicKey;
   quoteTokenProgram?: PublicKey;
+  /** Set when the quote is a live pump coin — the extra accounts the create needs. */
+  pumpQuote?: PumpQuoteAccounts;
 }): Promise<string> {
   const instructions: TransactionInstruction[] = [];
 
-  // Token-quoted creates are heavy (create plus the curve's quote ATA); SOL
-  // creates are cheap and ride the default budget.
+  // Token-quoted creates are heavy (create plus the curve's quote ATA, plus a
+  // pump coin's own curve/pool); SOL creates are cheap and ride the default
+  // budget. A pump-coin quote is the heaviest of the lot, so it gets more room.
   if (opts.quoteMint) {
-    instructions.push(ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }));
+    instructions.push(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: opts.pumpQuote ? 400_000 : 250_000 }),
+    );
   }
 
   instructions.push(
@@ -154,7 +204,13 @@ export async function buildCreateTransaction(opts: {
       mayhemMode: false,
       holderReward: opts.rewardTo === "HOLDERS",
       ...(opts.quoteMint
-        ? { quoteMint: opts.quoteMint, quoteTokenProgram: opts.quoteTokenProgram }
+        ? {
+            quoteMint: opts.quoteMint,
+            quoteTokenProgram: opts.quoteTokenProgram,
+            // A pump coin quoted against: appends its bonding curve (and, once
+            // migrated, its pool) so the program can price the new curve.
+            ...(opts.pumpQuote ? { pumpQuote: opts.pumpQuote } : {}),
+          }
         : {}),
     }),
   );

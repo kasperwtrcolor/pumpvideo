@@ -477,14 +477,19 @@ export default function LaunchPage() {
           </PairButton>
         </div>
         {poolPair === "CUSTOM" && (
-          <input
-            value={customMint}
-            onChange={(e) => setCustomMint(e.target.value)}
-            placeholder="quote mint address"
-            spellCheck={false}
-            disabled={busy}
-            className="mt-2 w-full rounded-xl border border-line bg-panel2 px-3.5 py-3 font-mono text-[12px] outline-none focus:border-accent disabled:opacity-60"
-          />
+          <>
+            <input
+              value={customMint}
+              onChange={(e) => setCustomMint(e.target.value)}
+              placeholder="paste a pump.fun coin's mint"
+              spellCheck={false}
+              disabled={busy}
+              className="mt-2 w-full rounded-xl border border-line bg-panel2 px-3.5 py-3 font-mono text-[12px] outline-none focus:border-accent disabled:opacity-60"
+            />
+            <p className="mt-1.5 text-[10px] text-muted">
+              Your coin will be priced in that coin — paste the mint of any coin launched on pump.fun.
+            </p>
+          </>
         )}
       </div>
 

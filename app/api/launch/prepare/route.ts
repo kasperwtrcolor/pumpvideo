@@ -169,6 +169,7 @@ export async function POST(req: NextRequest) {
       rewardTo: parsed.rewardTo,
       quoteMint: quote.quoteMint,
       quoteTokenProgram: quote.quoteTokenProgram,
+      pumpQuote: quote.pumpQuote,
     });
   } catch (e) {
     console.error("[launch:prepare:build]", e);
@@ -186,7 +187,9 @@ export async function POST(req: NextRequest) {
     poolPair: quote.label,
     rewardTo: parsed.rewardTo,
     // A rough floor the creator needs in the wallet to cover mint rent + fee.
-    estimatedLamports: 22_000_000,
+    // A token quote also carries the curve's quote ATA (and, for a pump coin,
+    // its curve/pool accounts), so it needs a little more headroom.
+    estimatedLamports: quote.quoteMint ? 30_000_000 : 22_000_000,
     imageUrl,
     mediaUrl,
   });
