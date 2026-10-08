@@ -478,8 +478,16 @@ export async function hideDust(
  */
 export const DEAD_MARKET_MS = 3 * 86_400_000;
 
-/** A coin measured within this window means the keeper is alive and working. */
-const KEEPER_LIVENESS_MS = 15 * 60_000;
+/**
+ * A coin measured within this window means the keeper is alive and working.
+ *
+ * Must comfortably exceed the keeper's cadence or the guard inverts: with the
+ * keeper on an hourly cron, a 15-minute window would find ~nothing measured and
+ * conclude "the keeper is down" on *every* run, permanently refusing to hide
+ * dead markets. Two hours is two full missed ticks — long enough that a healthy
+ * keeper always clears it, short enough to catch a genuinely dead cron.
+ */
+const KEEPER_LIVENESS_MS = 2 * 60 * 60_000;
 
 /** How many coins must be that fresh before we trust staleness as a verdict. */
 const KEEPER_LIVENESS_MIN = 10;

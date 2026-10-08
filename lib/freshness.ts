@@ -13,7 +13,7 @@
  * at ~$2.5k was shown at $377M, weeks after its pool disappeared.
  *
  * So a rank is only trustworthy if the number behind it was measured recently.
- * A live coin is re-measured every keeper tick (5 minutes); six hours is 72
+ * A live coin is re-measured every keeper tick (hourly); six hours is six
  * consecutive misses, which is long enough to ride out a keeper or source
  * outage without ever letting a genuinely dead coin back onto the board.
  *
