@@ -9,6 +9,8 @@ import { SOLANA_RPC } from "@/lib/pumpfun";
 import { rankFor } from "@/lib/ingest";
 import { notifyClipPublished, publicAuthor } from "@/lib/social";
 import { PUMP_PROGRAM_ID } from "@/lib/launch";
+import { bondingCurvePda } from "@pump-fun/pump-sdk";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import {
   downloadTokenFor,
   downloadUrl,
@@ -133,10 +135,34 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "BAD_MINT" }, { status: 400 });
   }
-  const mintAccount = await connection.getAccountInfo(mint).catch(() => null);
-  if (!mintAccount || !mintAccount.owner.equals(PUMP_PROGRAM_ID)) {
+
+  // A pump coin's *mint* account is owned by a token program — SPL Token, or
+  // Token-2022 for coins created since the 4.0.0 program — and never by the
+  // pump program. What the pump program owns is the coin's bonding curve, and
+  // the curve PDA is derived from the mint, so its existence (and ownership) is
+  // the real proof that pump.fun created this coin. Comparing the mint's owner
+  // to PUMP_PROGRAM_ID can never be true and rejected every genuine launch.
+  const curve = bondingCurvePda(mint);
+  const [mintAccount, curveAccount] = await Promise.all([
+    connection.getAccountInfo(mint).catch(() => null),
+    connection.getAccountInfo(curve).catch(() => null),
+  ]);
+
+  const mintOwner = mintAccount?.owner.toBase58();
+  const isTokenMint =
+    mintOwner === TOKEN_PROGRAM_ID.toBase58() || mintOwner === TOKEN_2022_PROGRAM_ID.toBase58();
+  if (!mintAccount || !isTokenMint) {
     return NextResponse.json(
-      { error: "NO_MINT", detail: "that mint was not created by pump.fun" },
+      { error: "NO_MINT", detail: "that mint is not a live SPL token mint" },
+      { status: 422 },
+    );
+  }
+  if (!curveAccount || !curveAccount.owner.equals(PUMP_PROGRAM_ID)) {
+    return NextResponse.json(
+      {
+        error: "NO_CURVE",
+        detail: "that coin has no pump.fun bonding curve — it was not launched on pump.fun",
+      },
       { status: 422 },
     );
   }
