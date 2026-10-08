@@ -11,6 +11,12 @@
   --color-accent2: #0aa84f;
   --color-up: #2bd98a;
   --color-down: #ff4d5e;
+  /* Pastel pink — the "clip" action's own colour, so the one thing you press to
+     post a video never reads as another green button. `-deep` is the ink that
+     sits on it, dark enough to hold contrast without going flat black. */
+  --color-pink: #ffb3cb;
+  --color-pink2: #ff8fb4;
+  --color-pink-deep: #4a1024;
 }
 
 :root {
@@ -306,16 +312,66 @@ body {
 }
 
 /*
- * The feed's "clip" button. Same raised-light treatment as the tab bar, in the
- * accent colour: a bright top edge, a darker seam below, and a green bloom that
- * spills onto the video behind it — so the one coloured control on the frame is
- * unmistakably the one you press to post.
+ * The feed's "clip" button. Pastel pink, and the reference for the raised
+ * treatment every button in the app now shares: a bright top edge, a darker seam
+ * below, a soft bloom underneath, all over a gradient that falls from light to
+ * base so the surface curves rather than reads flat. Pink rather than the accent
+ * green so the one thing you press to post a video is never mistaken for a buy.
  */
 .clip-btn {
+  background: linear-gradient(180deg, var(--color-pink), var(--color-pink2));
+  color: var(--color-pink-deep);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -2px 0 rgba(120, 20, 55, 0.18),
+    0 10px 22px -10px color-mix(in oklab, var(--color-pink2) 80%, transparent);
+}
+
+/*
+ * The raised treatment, applied app-wide.
+ *
+ * Two rules rather than a class on ninety call sites: the app draws every real
+ * button as either a colour fill (the burn gradient, or a solid accent chip) or
+ * a bordered panel surface. Keying on those two shapes — and on `button`/`a`
+ * only — catches the buttons and skips what merely looks similar: list rows,
+ * inputs, sheets and cards carry neither, and a rail row is a bare `button`
+ * with no border or fill, so it stays flat.
+ *
+ * Unlayered on purpose: Tailwind's utilities live in a layer, so these win
+ * without `!important` — which is what lets a borderless icon chip keep its own
+ * edges while still picking up the lift.
+ */
+.burn-gradient {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.22),
+    0 10px 22px -10px color-mix(in oklab, var(--color-accent) 85%, transparent);
+}
+
+/*
+ * The solid accent fill gets a gloss instead, because `background-image` layers
+ * *over* the utility's `background-color` — a colour fill it does not own would
+ * be wiped by a gradient set here.
+ */
+button[class*="bg-accent"],
+a[class*="bg-accent"] {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 60%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.45),
     inset 0 -2px 0 rgba(0, 0, 0, 0.22),
-    0 10px 22px -10px color-mix(in oklab, var(--color-accent) 90%, transparent);
+    0 10px 22px -10px color-mix(in oklab, var(--color-accent) 85%, transparent);
+}
+
+/* `bg-panel` matches `bg-panel2` and `bg-panel/80` too — every panel surface.
+   Same trick: a translucent gloss over whatever fill the utility set. */
+button[class*="border-line"][class*="bg-panel"],
+a[class*="border-line"][class*="bg-panel"],
+.btn3d {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 55%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.4),
+    0 8px 18px -10px rgba(0, 0, 0, 0.85);
 }
 
 /** The reshuffle icon acknowledging its own tap with one full turn. */

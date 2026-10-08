@@ -1298,14 +1298,15 @@ function ClipPanel({
               the address is carried in the URL, so the form arrives with the
               token already bound and the video is the only decision left.
 
-              Solid accent rather than a glass pill: it is the second thing you
-              can do with a coin and it was reading as chrome. The raised shadow
-              gives it the same "pressable" weight as the buy button beside it. */}
+              Solid pastel pink rather than a glass pill: it is the second thing
+              you can do with a coin and it was reading as chrome. The colour is
+              its own — pink, not another green — so "post a clip" and "buy" are
+              never confused, and it lifts like every other button in the app. */}
           <Link
             href={`/upload?token=${encodeURIComponent(coin.mint)}`}
             title={`Upload a clip for $${sym(coin.symbol)}`}
             aria-label={`Upload a clip for $${sym(coin.symbol)}`}
-            className="clip-btn flex items-center gap-1.5 rounded-2xl bg-accent px-3.5 py-3 text-[12px] font-black tracking-wide text-black active:scale-[0.97]"
+            className="clip-btn flex items-center gap-1.5 rounded-2xl px-3.5 py-3 text-[12px] font-black tracking-wide active:scale-[0.97]"
           >
             <ClipIcon className="h-4 w-4" />
             clip
