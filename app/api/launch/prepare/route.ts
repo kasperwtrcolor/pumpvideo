@@ -14,7 +14,12 @@ import {
   uploadObject,
   launchMetadataPath,
 } from "@/lib/gcs";
-import { buildCreateTransaction, buildMetadata, resolveQuote } from "@/lib/launch";
+import {
+  buildCreateTransaction,
+  buildMetadata,
+  resolveQuote,
+  MAX_URI_BYTES,
+} from "@/lib/launch";
 
 export const dynamic = "force-dynamic";
 
@@ -135,7 +140,7 @@ export async function POST(req: NextRequest) {
   let uri: string;
   try {
     uri = await uploadObject({
-      object: launchMetadataPath(trader.id),
+      object: launchMetadataPath(),
       contentType: "application/json",
       body: metadata,
     });
@@ -144,6 +149,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "METADATA_UPLOAD_FAILED", detail: "could not publish the coin metadata" },
       { status: 502 },
+    );
+  }
+
+  // The uri is embedded on chain as a fixed-length string; pump's `create_v2`
+  // rejects anything over 200 bytes with `UriTooLong` (6045), and only when the
+  // transaction is simulated — i.e. after the creator has already signed. Catch
+  // it here so it surfaces as a clear message instead of a simulation failure.
+  const uriBytes = Buffer.byteLength(uri, "utf8");
+  if (uriBytes > MAX_URI_BYTES) {
+    console.error("[launch:prepare:uri-too-long]", { uriBytes, uri });
+    return NextResponse.json(
+      {
+        error: "URI_TOO_LONG",
+        detail: `the coin metadata URL is ${uriBytes} bytes, over pump.fun's ${MAX_URI_BYTES}-byte limit`,
+      },
+      { status: 500 },
     );
   }
 

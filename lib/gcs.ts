@@ -366,9 +366,19 @@ export function objectOwnedByLaunch(object: string, ownerId: string): boolean {
   return object.startsWith(`launch/${ownerId}/`) && !object.includes("..");
 }
 
-/** Object path for a launch's metadata document (written server-side). */
-export function launchMetadataPath(ownerId: string): string {
-  return `launch/${ownerId}/meta/${crypto.randomUUID()}.json`;
+/**
+ * Object path for a launch's metadata document (written server-side).
+ *
+ * Deliberately short and flat. This object's *serving* URL is what becomes the
+ * coin's on-chain `uri`, and pump's `create_v2` caps that URI at **200 bytes**
+ * (`UriTooLong`, 6045). The old per-owner path
+ * (`launch/<ownerId>/meta/<uuid>.json`) inflated the Firebase download URL past
+ * the cap for accounts with longer ids — a launch that "worked yesterday" then
+ * failed simulation. A 16-hex id under `lm/` keeps the URL ~135 bytes with
+ * room to spare, regardless of the owner id's length.
+ */
+export function launchMetadataPath(): string {
+  return `lm/${crypto.randomBytes(8).toString("hex")}.json`;
 }
 
 /**

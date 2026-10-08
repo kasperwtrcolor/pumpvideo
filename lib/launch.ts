@@ -34,6 +34,13 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 /** Wrapped SOL — pump's native quote. */
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
+/**
+ * The on-chain `uri` byte cap. pump's `create_v2` rejects a longer one with
+ * `UriTooLong` (6045) — and only at simulation time, so it has to be checked
+ * before the transaction is handed to the creator.
+ */
+export const MAX_URI_BYTES = 200;
+
 /** USDC on Solana mainnet: whitelisted on pump's `Global`, so a first-class quote. */
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
