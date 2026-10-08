@@ -6,7 +6,7 @@ import { useTrader } from "./TraderProvider";
 import type { AccountSummary, Trader } from "./TraderProvider";
 import { NotifyBell } from "./NotifyBell";
 import { DepositButton } from "./DepositButton";
-import { SearchIcon } from "./Icons";
+import { SearchIcon, RocketIcon } from "./Icons";
 import { LogoLockup } from "./Logo";
 import { fmtPctAbs, fmtUsd } from "@/lib/format";
 
@@ -60,6 +60,16 @@ export function AppHeader() {
 
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <DepositButton overlay={overlay} />
+        {/* Launch sits here on the phone because it is the one action that
+            creates rather than consumes — the bottom bar's five slots are all
+            browsing destinations, and a launch is not a tab you live in. */}
+        <Link
+          href="/launch"
+          aria-label="Launch a coin"
+          className="press flex h-9 w-9 items-center justify-center rounded-full border border-accent/50 bg-accent/15 text-accent backdrop-blur"
+        >
+          <RocketIcon className="h-4 w-4" />
+        </Link>
         <Link
           href="/search"
           aria-label="Search people and tokens"

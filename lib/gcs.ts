@@ -332,3 +332,71 @@ export async function setBucketCors(
   const text = await res.text().catch(() => "");
   return { ok: false, detail: `${res.status} ${text.slice(0, 300)}` };
 }
+
+/* ------------------------------------------------------------------------- *
+ * Launch assets
+ *
+ * A launch uploads two things: the coin's media (an image, or a video plus a
+ * thumbnail the browser extracted from its first frame) and the metadata JSON
+ * the pump program's `uri` points at. Media goes through the same signed-PUT
+ * path a clip does; the metadata is small and is written by the server itself
+ * (`uploadObject`), so it never needs to touch the browser.
+ *
+ * Kept in a folder of its own (`launch/<owner>/…`) so a launch asset can never
+ * be mistaken for — or validated as — a clip.
+ * ------------------------------------------------------------------------- */
+
+/** Images are accepted for a coin's art or its extracted video thumbnail. */
+export const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+
+/** Everything a launch may upload in one signed request. */
+export const ALLOWED_LAUNCH_TYPES = [
+  ...ALLOWED_VIDEO_TYPES,
+  ...ALLOWED_IMAGE_TYPES,
+] as const;
+
+/** Object path for a launch asset: one folder per uploader, random file name. */
+export function launchObjectPath(ownerId: string, ext: string): string {
+  const safeExt = ext.replace(/[^a-z0-9]/gi, "").slice(0, 5).toLowerCase() || "bin";
+  return `launch/${ownerId}/${crypto.randomUUID()}.${safeExt}`;
+}
+
+/** True when `object` is inside this owner's launch folder — the ownership check. */
+export function objectOwnedByLaunch(object: string, ownerId: string): boolean {
+  return object.startsWith(`launch/${ownerId}/`) && !object.includes("..");
+}
+
+/** Object path for a launch's metadata document (written server-side). */
+export function launchMetadataPath(ownerId: string): string {
+  return `launch/${ownerId}/meta/${crypto.randomUUID()}.json`;
+}
+
+/**
+ * Write a small object from the server and return its public serving URL.
+ *
+ * Reuses the exact signed-PUT path the browser uses, so the object gets the same
+ * deterministic Firebase download token and is readable without a signed URL —
+ * which is what the metadata `uri` has to be, since pump.fun, Metaplex and every
+ * indexer fetch it later with no credentials.
+ */
+export async function uploadObject(opts: {
+  object: string;
+  contentType: string;
+  body: string;
+}): Promise<string> {
+  const token = downloadTokenFor(opts.object);
+  const signed = signUploadUrl({
+    object: opts.object,
+    contentType: opts.contentType,
+    expiresInSec: 300,
+    metadata: { firebaseStorageDownloadTokens: token },
+  });
+  const res = await fetch(signed.url, {
+    method: "PUT",
+    headers: signed.headers,
+    body: opts.body,
+  });
+  if (!res.ok) throw new Error(`storage upload failed: ${res.status}`);
+  return downloadUrl(opts.object, token);
+}
+

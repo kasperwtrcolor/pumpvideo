@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/", label: "Feed", match: (p: string) => p === "/" },
   { href: "/coins", label: "Coins", match: (p: string) => p.startsWith("/coins") },
   { href: "/top", label: "Top", match: (p: string) => p.startsWith("/top") },
+  { href: "/launch", label: "Launch", match: (p: string) => p.startsWith("/launch") },
 ] as const;
 
 export function TopNav() {

@@ -7,6 +7,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useTrader } from "@/components/TraderProvider";
 import { sym } from "@/lib/format";
 import { Mascot } from "@/components/Mascots";
+import { RocketIcon } from "@/components/Icons";
 
 /** Must match MAX_UPLOAD_BYTES in lib/gcs.ts. The server is the real gate. */
 const MAX_MB = 25;
@@ -195,6 +196,13 @@ export default function UploadPage() {
             ? "Your clip will be bound to the token you were watching. Buyers who arrive through it pay you 1% of the buy, taken in SOL at the same moment as their swap."
             : "Bind a video to a token address. Buyers who arrive through your clip pay you 1% of the buy, taken in SOL at the same moment as their swap."}
         </p>
+        <Link
+          href="/launch"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-[12px] font-bold text-accent"
+        >
+          <RocketIcon className="h-3.5 w-3.5" />
+          No token yet? Launch a coin instead
+        </Link>
 
         {/* The token carried in from the feed. Shown as a settled fact rather
             than a field to fill in, because it is one: they already chose this

@@ -251,3 +251,35 @@ export function VolumeIcon({ className, muted }: IconProps & { muted?: boolean }
     </svg>
   );
 }
+
+/** Media placeholder for a launch's upload box — a picture frame with a sun. */
+export function ImageIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={1.9} aria-hidden>
+      <rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.4" />
+      <circle cx="8.6" cy="9.6" r="1.5" />
+      <path d="M3.6 16.6 9 11.9l4 3.5 3.1-2.7 4.3 3.9" />
+    </svg>
+  );
+}
+
+/** Disclosure chevron for the collapsible rows (social links). */
+export function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} strokeWidth={2} aria-hidden>
+      <path d="m9.5 5.5 6.5 6.5-6.5 6.5" />
+    </svg>
+  );
+}
+
+/** Launch. A rocket reads as "start something", which is the one thing this is. */
+export function RocketIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden>
+      <path d="M12.4 3.6c3.3.5 6 3.2 6.5 6.5l-3.3 3.3-2-2-2.6 2.6-2.4-2.4-2.6 2.6 2.6-2.6-2.4-2.4 2.6-2.6-2-2 3.3-3.3Z" />
+      <path d="M7.3 15.3c-.9.9-1.4 3.1-1.5 4.4 1.3-.1 3.5-.6 4.4-1.5" />
+      <circle cx="14.6" cy="8.6" r="1.2" />
+    </svg>
+  );
+}
+
