@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAddFunds, usePrivy } from "@privy-io/react-auth";
@@ -16,6 +16,12 @@ import { useTrader } from "./TraderProvider";
 import { CheckIcon, ExternalIcon } from "./Icons";
 import { fmtUsd, shortAddr } from "@/lib/format";
 import { LEGAL_LINKS } from "@/lib/legal";
+import {
+  getAccountView,
+  setAccountView,
+  subscribeAccountView,
+  type AccountView,
+} from "@/lib/account-view";
 
 const LAMPORTS = 1_000_000_000;
 const BASE_FEE_LAMPORTS = 5_000;
@@ -34,7 +40,7 @@ const money = (n: number | null) => (n == null ? "—" : n === 0 ? "$0.00" : fmt
 /** Solana mainnet genesis hash — the CAIP-2 chain id Privy's funding flow wants. */
 const SOLANA_MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
-type View = "main" | "receive" | "withdraw" | "export";
+type View = AccountView;
 
 function Row({
   label,
@@ -64,7 +70,10 @@ export function AccountPanel() {
   const { addFunds } = useAddFunds();
   const { trader, account, refresh, toast, solUsd } = useTrader();
 
-  const [view, setView] = useState<View>("main");
+  // Which panel is showing lives in lib/account-view.ts, so the header's
+  // Deposit button can open the Receive panel from outside this component.
+  const view = useSyncExternalStore(subscribeAccountView, getAccountView, () => "main" as View);
+  const setView = setAccountView;
   const [balance, setBalance] = useState<number | null>(null);
   const [balErr, setBalErr] = useState(false);
   const [busy, setBusy] = useState(false);

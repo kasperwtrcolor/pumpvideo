@@ -374,6 +374,16 @@ a[class*="border-line"][class*="bg-panel"],
     0 8px 18px -10px rgba(0, 0, 0, 0.85);
 }
 
+/* The white money button (Deposit / Login). No gloss needed on a white fill —
+   just the seam and the lift, which is all a bright surface needs to sit up. */
+button[class*="bg-white"],
+a[class*="bg-white"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.18),
+    0 8px 18px -8px rgba(0, 0, 0, 0.7);
+}
+
 /** The reshuffle icon acknowledging its own tap with one full turn. */
 @keyframes spin-once {
   from {

@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTrader } from "../TraderProvider";
+import type { Trader } from "../TraderProvider";
 import { NotifyBell } from "../NotifyBell";
 import { DepositButton } from "../DepositButton";
-import { SearchIcon } from "../Icons";
+import { PersonIcon, SearchIcon } from "../Icons";
 import { LogoLockup } from "../Logo";
 import { fmtUsd } from "@/lib/format";
 
@@ -24,7 +25,7 @@ const LINKS = [
 
 export function TopNav() {
   const path = usePathname();
-  const { solUsd } = useTrader();
+  const { trader, solUsd } = useTrader();
 
   return (
     <header className="z-50 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-bg px-4">
@@ -81,7 +82,42 @@ export function TopNav() {
 
         <DepositButton overlay={false} />
         <NotifyBell overlay={false} />
+
+        {/* Your account. The phone header has had this all along — avatar on the
+            left, tap to manage the wallet — and the wide bar had no way into
+            /account at all, which is why it read as missing. The avatar is the
+            affordance every wallet app uses, so it lives in the same corner
+            here: rightmost, past the money button. */}
+        <Link
+          href="/account"
+          aria-label="Your account"
+          title="Your account"
+          className={`press flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border text-[13px] font-black ${
+            path.startsWith("/account")
+              ? "border-accent/60 bg-accent/15 text-accent"
+              : "border-line bg-panel2 text-ink hover:border-muted/50"
+          }`}
+        >
+          <AccountGlyph trader={trader} />
+        </Link>
       </div>
     </header>
   );
+}
+
+/** Avatar when the trader has one; otherwise the first letter of their name. */
+function AccountGlyph({ trader }: { trader: Trader | null }) {
+  if (trader?.avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={trader.avatarUrl}
+        alt=""
+        referrerPolicy="no-referrer"
+        className="h-full w-full object-cover"
+      />
+    );
+  }
+  const initial = (trader?.username ?? trader?.displayName ?? "").slice(0, 1).toUpperCase();
+  return initial ? <span>{initial}</span> : <PersonIcon className="h-4 w-4" />;
 }
