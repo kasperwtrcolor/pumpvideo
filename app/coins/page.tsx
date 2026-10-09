@@ -8,7 +8,7 @@ import { useTrader } from "@/components/TraderProvider";
 import { fmtCount, fmtSol, fmtUsd } from "@/lib/format";
 import { CoinRow } from "@/components/CoinRow";
 
-type Sort = "top" | "movers" | "new" | "trending" | "clips";
+type Sort = "top" | "new" | "trending" | "clips";
 
 type Stats = {
   coins: number;
@@ -29,7 +29,8 @@ type CoinRow = CoinDTO & { clipCount: number; clip: string | null };
 
 const SORTS: { key: Sort; label: string }[] = [
   { key: "top", label: "Top" },
-  { key: "movers", label: "Movers" },
+  // Movers removed — it duplicated Top's first screen (the biggest gainers are
+  // the biggest caps). See components/Feed.tsx for the full note.
   { key: "new", label: "New" },
   { key: "trending", label: "Trending" },
   { key: "clips", label: "Via clips" },

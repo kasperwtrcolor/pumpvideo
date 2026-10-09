@@ -22,16 +22,21 @@ import { ClipIcon, CommentIcon, HeartIcon, ShareIcon, ShuffleIcon, StarIcon, Vol
 import { LiveDot, Sparkline } from "./PriceTicker";
 import { CultureIcon } from "./CultureIcon";
 
-type Sort = "movers" | "new" | "trending" | "top";
+type Sort = "new" | "trending" | "top";
 type Scope = "all" | "following";
 
 const SORTS: { key: Sort; label: string; hint: string }[] = [
   // The hint is what the rail *means*, since a one-word label can't carry it.
-  // Top is the biggest caps, not "best"; Movers is a price-change board, not
-  // "popular"; New is new *tokens*, not new clips; Trending is the Dexscreener
-  // board — what the market is trading right now, not "best".
+  // Top is the biggest caps, not "best"; New is new *tokens*, not new clips;
+  // Trending is the Dexscreener board — what the market is trading right now,
+  // not "best".
+  //
+  // Movers was dropped: it ranked by 24h price change, but the largest gainers
+  // are almost always the largest caps, so its first screen was the same coins
+  // as Top's. What remained below that was a penny-stock board the market cap
+  // ranking already covers better. The rank is still served by /api/feed for the
+  // desktop coin rail, which has no Top tab of its own.
   { key: "top", label: "Top", hint: "biggest market caps" },
-  { key: "movers", label: "Movers", hint: "biggest price moves in 24h" },
   { key: "new", label: "New", hint: "tokens launched in the last hour" },
   { key: "trending", label: "Trending", hint: "what Dexscreener is trending" },
 ];
