@@ -803,6 +803,7 @@ export function Feed({
         <CommentSheet
           clipId={commentFor.id}
           symbol={commentFor.coin.symbol}
+          mint={commentFor.coin.mint}
           open
           onClose={() => setCommentFor(null)}
           onCount={(n) =>

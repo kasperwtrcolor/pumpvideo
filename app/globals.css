@@ -1002,3 +1002,152 @@ a[class*="bg-white"] {
     will-change: auto;
   }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Callouts — a trader's public call, and the big-holder ones that carry it
+ * ---------------------------------------------------------------------------
+ * The rail beside the comments. Every row enters with the same slight rise the
+ * feed uses (a swipe is already being driven; anything larger fights it), and
+ * the *big holders* — the calls the rail is ranked by when sorted by size —
+ * get a translucent treatment on top: an accent-tinted glass card, a single
+ * light sweep across it as it lands, and a one-shot halo blooming out of the
+ * avatar. All three fire on mount, so a sort change or a fresh open replays
+ * them and a re-render does not.
+ */
+
+@keyframes callout-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+.callout-in {
+  animation: callout-in 340ms var(--ease-decelerate) both;
+}
+
+/* A big holder's card lands a touch harder — a small overshoot, so the rows
+   that matter most are the ones the eye is pulled to first. */
+@keyframes callout-whale-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.97);
+  }
+  62% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0) scale(1.012);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+.callout-whale-in {
+  animation: callout-whale-in 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/*
+ * The translucent glass of a big-holder card. Tinted, not filled: the accent
+ * sits at single-digit opacity so the clip's own art still reads through it,
+ * and a hairline of light on the top edge is what makes it look like a surface
+ * rather than a highlight.
+ *
+ * The blur is NOT set here — it comes from Tailwind's `backdrop-blur` utility on
+ * the row. Written as raw CSS the minifier rewrites `backdrop-filter` into the
+ * `-webkit-` alias alone, which no current browser honours, so the blur silently
+ * disappears; the utility emits both forms correctly.
+ */
+.callout-whale {
+  background: color-mix(in oklab, var(--color-accent) 8%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-accent) 22%, transparent),
+    0 10px 26px -18px color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+
+/* The one-shot sweep. Clipped by the card's own `overflow-hidden`, so it never
+   escapes the row; `pointer-events: none` keeps it out of the way of taps. */
+@keyframes callout-sheen {
+  from {
+    transform: translateX(-140%) skewX(-16deg);
+  }
+  to {
+    transform: translateX(260%) skewX(-16deg);
+  }
+}
+.callout-whale::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 45%;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-accent) 26%, transparent),
+    transparent
+  );
+  animation: callout-sheen 900ms var(--ease-decelerate) 160ms both;
+}
+
+/* The halo blooming out of a big holder's avatar, once, as the card lands. */
+@keyframes callout-halo {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.6;
+  }
+  70% {
+    opacity: 0.22;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+.callout-halo {
+  animation: callout-halo 720ms var(--ease-decelerate) 120ms both;
+}
+
+/* The whale badge popping in — the one word that says why this row is lit. */
+@keyframes callout-badge-in {
+  0% {
+    transform: scale(0.4) rotate(-10deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.14) rotate(2deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+.callout-badge-in {
+  animation: callout-badge-in 460ms cubic-bezier(0.34, 1.56, 0.64, 1) 220ms both;
+}
+
+/* The sort control's thumb sliding between the two orderings. */
+.seg-thumb {
+  transition: transform 260ms var(--ease-decelerate);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .callout-in,
+  .callout-whale-in,
+  .callout-whale::after,
+  .callout-halo,
+  .callout-badge-in {
+    animation: none;
+  }
+  .callout-whale::after {
+    opacity: 0;
+  }
+  .seg-thumb {
+    transition: none;
+  }
+}

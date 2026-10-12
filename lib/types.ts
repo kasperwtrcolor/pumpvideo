@@ -185,6 +185,54 @@ export type CommentDTO = {
   at: string;
 };
 
+/**
+ * One pump.fun callout for a coin — a trader publicly calling a token they hold.
+ *
+ * Sourced from pump.fun's public `mint-positions` feed, so everything here is the
+ * caller's own published position: the size they hold, what it has done since the
+ * call, and the note they wrote. `valueUsd` is the *current* size of the position
+ * (cost basis + unrealised PnL) and is what the rail ranks "largest holdings" by.
+ */
+export type CalloutDTO = {
+  id: string;
+  /** Who called it. `username` is the pump.fun display name, never a wallet. */
+  author: string;
+  avatarUrl: string | null;
+  xUsername: string | null;
+  isVerified: boolean;
+  /** The note they wrote, in their words. Never empty — a blank callout is dropped. */
+  thesis: string;
+  mediaUrl: string | null;
+  /** Tokens still held at the time of the last read. */
+  amountHeld: number;
+  /** Current position size in USD — the ranking key for "largest holdings". */
+  valueUsd: number;
+  /** Unrealised PnL in USD, signed. */
+  pnlUsd: number;
+  /** Unrealised PnL as a percentage of cost basis, signed. */
+  pnlPct: number;
+  /** Market cap at the moment of the call, in USD. */
+  calledOutAtMcap: number;
+  /** Price multiple since the call (1.0 = flat, 2.0 = doubled). */
+  multiple: number;
+  likes: number;
+  views: number;
+  replies: number;
+  /** When the callout was posted. */
+  at: string;
+};
+
+export type CalloutsResponse = {
+  callouts: CalloutDTO[];
+  /** Total callouts pump.fun knows for this coin — the list is one page of it. */
+  total: number;
+  hasMore: boolean;
+  /** Echoes the requested ordering so a stale response can be discarded. */
+  sort: CalloutSort;
+};
+
+export type CalloutSort = "top" | "latest";
+
 export type PositionDTO = {
   mint: string;
   symbol: string;

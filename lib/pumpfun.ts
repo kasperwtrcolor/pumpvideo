@@ -5,6 +5,8 @@
  * We only ever read — all writes go through the live swap route.
  */
 
+import type { CalloutDTO } from "./types";
+
 const FEED_API = "https://frontend-api-v3.pump.fun";
 const UA = "Mozilla/5.0 (compatible; pemp/0.1)";
 
@@ -208,3 +210,165 @@ export function toCoinRecord(c: PumpCoin) {
 /** Public RPC for read-only balance checks / live-mode plumbing. */
 export const SOLANA_RPC =
   process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+
+/*
+ * ---------------------------------------------------------------------------
+ * Callouts
+ * ---------------------------------------------------------------------------
+ * A "callout" is a trader publicly calling a coin they hold, with the note they
+ * wrote and the size of their position attached. pump.fun serves the whole set
+ * for one coin from `GET /mint-positions/{mint}` on the same public frontend API
+ * the rest of this file talks to — no key, no JWT.
+ *
+ * The two orderings the product exposes are this endpoint's own `sortBy`:
+ *   - `TOP`    ranks by the size of what the caller still holds (largest first)
+ *   - `LATEST` ranks by when the call was posted (newest first)
+ *
+ * NOTE: the *global* callout leaderboard / "Hot callouts" rail lives on a
+ * different host (`advanced-api-v2.pump.fun`) and is JWT-gated behind a
+ * Cloudflare rule that refuses server-side requests outright — it is not
+ * reachable from here and is not what this function uses.
+ */
+
+type RawCallout = {
+  calloutId?: string | null;
+  thesis?: string | null;
+  mediaUrl?: string | null;
+  calloutTimestamp?: string | null;
+  calledOutAtMcap?: number | null;
+  multiple?: number | null;
+  likes?: number | null;
+  viewCount?: number | null;
+  replyCount?: number | null;
+};
+
+type RawMintPosition = {
+  userId?: string | null;
+  userName?: string | null;
+  profileImage?: string | null;
+  xUsername?: string | null;
+  isVerified?: boolean | null;
+  amountHeld?: number | null;
+  costBasisUsd?: number | null;
+  pnlUsd?: number | null;
+  realizedPnlUsd?: number | null;
+  pnlPercentage?: number | null;
+  callout?: RawCallout | null;
+};
+
+/**
+ * Fetch the callouts for one coin.
+ *
+ * Blank-thesis rows are dropped: pump.fun returns a position for every holder
+ * whether or not they actually wrote a call, and a callout with no note is just
+ * a row of numbers — the note is the thing being read. Rows are also de-duped by
+ * callout id, because the same trader can appear twice across a page boundary.
+ */
+export async function fetchCallouts(
+  mint: string,
+  opts: { sort?: "top" | "latest"; limit?: number } = {},
+): Promise<{ rows: CalloutDTO[]; total: number; hasMore: boolean }> {
+  const { sort = "top", limit = 20 } = opts;
+  const sortBy = sort === "top" ? "TOP" : "LATEST";
+  const url = `${FEED_API}/mint-positions/${encodeURIComponent(mint)}?sortBy=${sortBy}&withThesis=true&pageSize=${limit}`;
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(400 * 2 ** (attempt - 1) + Math.random() * 300);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        cache: "no-store",
+      });
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+    if (!res.ok) {
+      lastErr = new Error(`pump.fun mint-positions ${res.status}`);
+      // 429/5xx are worth another go; a 404 means the coin has no callouts at all.
+      if (res.status !== 429 && res.status < 500) break;
+      continue;
+    }
+
+    const body = (await res.json()) as {
+      positions?: RawMintPosition[];
+      totalCount?: number;
+      hasMore?: boolean;
+    };
+
+    const positions = body.positions ?? [];
+
+    /*
+     * The coin's current price, derived from the positions themselves.
+     *
+     * Every row here is the same coin, so `(basis + pnl - realised) / held` is
+     * that coin's price in USD — pump.fun exposes no price field on this
+     * endpoint, but it exposes the four numbers that imply one. A trader who
+     * partially sold leaves a little noise in their own ratio, so take the
+     * *median* across the page rather than trusting any single row, then apply
+     * that one price to every row. That keeps the size column strictly
+     * proportional to what is actually held, which is exactly the ordering the
+     * upstream `TOP` sort uses — and, unlike the raw subtraction, it can never
+     * come out negative for someone who banked a large realised profit.
+     */
+    const ratios: number[] = [];
+    for (const p of positions) {
+      const held = p.amountHeld ?? 0;
+      if (held <= 0) continue;
+      const v = (p.costBasisUsd ?? 0) + (p.pnlUsd ?? 0) - (p.realizedPnlUsd ?? 0);
+      if (v > 0) ratios.push(v / held);
+    }
+    ratios.sort((a, b) => a - b);
+    const priceUsd = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 0;
+
+    const seen = new Set<string>();
+    const rows: CalloutDTO[] = [];
+    for (const p of positions) {
+      const c = p.callout;
+      const thesis = (c?.thesis ?? "").trim();
+      const id = c?.calloutId ?? null;
+      if (!c || !id || !thesis || seen.has(id)) continue;
+      seen.add(id);
+
+      const cost = p.costBasisUsd ?? 0;
+      const pnl = p.pnlUsd ?? 0;
+      const realized = p.realizedPnlUsd ?? 0;
+      const unrealized = pnl - realized;
+      const held = p.amountHeld ?? 0;
+
+      rows.push({
+        id,
+        author: (p.userName ?? "").trim() || "anon",
+        avatarUrl: p.profileImage || null,
+        xUsername: p.xUsername || null,
+        isVerified: Boolean(p.isVerified),
+        thesis,
+        mediaUrl: c.mediaUrl || null,
+        amountHeld: held,
+        // Price-derived when we could read one; the basis identity is the
+        // fallback for a page where every row is a partial seller.
+        valueUsd: priceUsd > 0 ? held * priceUsd : Math.max(0, cost + unrealized),
+        pnlUsd: unrealized,
+        // Recomputed from the unrealised figure rather than passed through, so
+        // the chip's percentage always agrees with the dollar amount beside it.
+        pnlPct: cost > 0 ? (unrealized / cost) * 100 : 0,
+        calledOutAtMcap: c.calledOutAtMcap ?? 0,
+        multiple: c.multiple ?? 1,
+        likes: c.likes ?? 0,
+        views: c.viewCount ?? 0,
+        replies: c.replyCount ?? 0,
+        at: c.calloutTimestamp ?? "",
+      });
+    }
+
+    return {
+      rows,
+      total: body.totalCount ?? rows.length,
+      hasMore: Boolean(body.hasMore),
+    };
+  }
+
+  throw lastErr instanceof Error ? lastErr : new Error("pump.fun mint-positions failed");
+}
