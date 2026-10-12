@@ -2,11 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import type { FeedItemDTO } from "@/lib/types";
+import type { CalloutCount, FeedItemDTO } from "@/lib/types";
 import { CoinAvatar } from "../CoinAvatar";
 import { PairBadge } from "../PairBadge";
 import { HeartIcon, CommentIcon, ShareIcon, VolumeIcon } from "../Icons";
-import { fmtUsd, sym } from "@/lib/format";
+import { fmtCalloutCount, fmtUsd, sym } from "@/lib/format";
 
 /**
  * The centre stage: the vertical wall, one clip at a time.
@@ -24,6 +24,7 @@ export function ClipStage({
   muted,
   onToggleMute,
   liked,
+  calloutCounts,
   onLike,
   onComment,
   onShare,
@@ -35,6 +36,8 @@ export function ClipStage({
   muted: boolean;
   onToggleMute: () => void;
   liked: Record<string, boolean>;
+  /** Callout counts keyed by mint — what the comment icon's badge shows. */
+  calloutCounts: Record<string, CalloutCount>;
   onLike: (i: number) => void;
   onComment: (i: number) => void;
   onShare: (i: number) => void;
@@ -78,6 +81,7 @@ export function ClipStage({
             muted={muted}
             onToggleMute={onToggleMute}
             liked={Boolean(liked[it.id])}
+            callouts={calloutCounts[it.coin.mint]}
             onLike={() => onLike(i)}
             onComment={() => onComment(i)}
             onShare={() => onShare(i)}
@@ -95,6 +99,7 @@ function Panel({
   muted,
   onToggleMute,
   liked,
+  callouts,
   onLike,
   onComment,
   onShare,
@@ -105,6 +110,7 @@ function Panel({
   muted: boolean;
   onToggleMute: () => void;
   liked: boolean;
+  callouts?: CalloutCount;
   onLike: () => void;
   onComment: () => void;
   onShare: () => void;
@@ -167,7 +173,7 @@ function Panel({
         <RailButton label="like" onClick={onLike} on={liked}>
           <HeartIcon filled={liked} className={`h-6 w-6 ${liked ? "text-down" : ""}`} />
         </RailButton>
-        <RailButton label="comment" onClick={onComment}>
+        <RailButton label="callouts" onClick={onComment} badge={fmtCalloutCount(callouts)}>
           <CommentIcon className="h-6 w-6" />
         </RailButton>
         <RailButton label="share" onClick={onShare}>
@@ -220,22 +226,30 @@ function RailButton({
   label,
   on,
   onClick,
+  badge,
   children,
 }: {
   label: string;
   on?: boolean;
   onClick: () => void;
+  /** A count on the corner — the callout tally on the comment control. */
+  badge?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
       aria-label={label}
-      className={`press flex h-11 w-11 items-center justify-center rounded-full border backdrop-blur ${
+      className={`press relative flex h-11 w-11 items-center justify-center rounded-full border backdrop-blur ${
         on ? "border-down/40 bg-down/15 text-down" : "border-white/20 bg-black/40 text-white"
       }`}
     >
       {children}
+      {badge && (
+        <span className="absolute -right-1.5 -top-1.5 min-w-[18px] rounded-full border border-black/40 bg-accent px-1 text-center text-[10px] font-black leading-4 tabular-nums text-black">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }

@@ -213,6 +213,100 @@ export const SOLANA_RPC =
 
 /*
  * ---------------------------------------------------------------------------
+ * Callout counts
+ * ---------------------------------------------------------------------------
+ * The feed's rail wants "how many callouts does this coin have" for a handful
+ * of coins at a time, so the read has to be cheap. `mint-positions` caps
+ * `pageSize` at 50 and does not honour `offset` — paging returns the same rows —
+ * so a true total is not reachable. What *is* reachable, in one request, is the
+ * page itself: with `withThesis=true` the endpoint returns only rows that carry
+ * a callout, so `positions.length` is the callout count exactly, and `hasMore`
+ * says whether it was truncated at 50. That is enough for a badge: an exact
+ * number under fifty, "50+" above it.
+ */
+
+/** The endpoint's own ceiling; asking for more returns an empty body. */
+const CALLOUT_COUNT_PAGE = 50;
+
+/** How long a coin's count is reused. The badge is ambient, not a quote. */
+const CALLOUT_COUNT_TTL = 60_000;
+
+const calloutCountCache = new Map<string, { n: number; capped: boolean; at: number }>();
+
+/**
+ * The number of callouts on one coin, or `null` when the read failed (so a
+ * caller can tell "no callouts" from "we could not look").
+ */
+export async function fetchCalloutCount(
+  mint: string,
+): Promise<{ n: number; capped: boolean } | null> {
+  const hit = calloutCountCache.get(mint);
+  if (hit && Date.now() - hit.at < CALLOUT_COUNT_TTL) {
+    return { n: hit.n, capped: hit.capped };
+  }
+
+  const url = `${FEED_API}/mint-positions/${encodeURIComponent(mint)}?sortBy=LATEST&withThesis=true&pageSize=${CALLOUT_COUNT_PAGE}`;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await sleep(500 + Math.random() * 400);
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        cache: "no-store",
+      });
+      // A coin with no callouts still answers 200 with an empty list; anything
+      // else is a genuine failure and must not be cached as a zero.
+      if (!res.ok) continue;
+
+      const body = (await res.json()) as {
+        positions?: { callout?: { calloutId?: string | null; thesis?: string | null } | null }[];
+        hasMore?: boolean;
+      };
+
+      // De-dupe by callout id — the same call can appear twice on a boundary.
+      const ids = new Set<string>();
+      for (const p of body.positions ?? []) {
+        const c = p.callout;
+        if (c?.calloutId && (c.thesis ?? "").trim()) ids.add(c.calloutId);
+      }
+
+      const value = { n: ids.size, capped: Boolean(body.hasMore), at: Date.now() };
+      calloutCountCache.set(mint, value);
+      return { n: value.n, capped: value.capped };
+    } catch {
+      /* network blip — try once more, then give up */
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Counts for many coins at once, run in small batches so a wall of clips does
+ * not open twenty sockets to pump.fun at the same moment. Coins that fail are
+ * simply absent from the result — the rail then leaves that badge alone rather
+ * than printing a zero it does not believe.
+ */
+export async function fetchCalloutCounts(
+  mints: string[],
+): Promise<Record<string, { n: number; capped: boolean }>> {
+  const unique = Array.from(new Set(mints.filter(Boolean))).slice(0, 24);
+  const out: Record<string, { n: number; capped: boolean }> = {};
+
+  for (let i = 0; i < unique.length; i += 4) {
+    const batch = unique.slice(i, i + 4);
+    const settled = await Promise.allSettled(batch.map((m) => fetchCalloutCount(m)));
+    settled.forEach((r, j) => {
+      if (r.status === "fulfilled" && r.value) out[batch[j]] = r.value;
+    });
+    if (i + 4 < unique.length) await sleep(150);
+  }
+
+  return out;
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Callouts
  * ---------------------------------------------------------------------------
  * A "callout" is a trader publicly calling a coin they hold, with the note they

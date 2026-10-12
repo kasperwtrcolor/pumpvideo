@@ -23,6 +23,7 @@ export function CommentSheet({
   symbol,
   mint,
   open,
+  initialTab = "comments",
   onClose,
   onCount,
 }: {
@@ -30,11 +31,17 @@ export function CommentSheet({
   symbol: string;
   mint: string;
   open: boolean;
+  /**
+   * Which tab to land on. The feed opens this on Callouts when the coin has
+   * callouts, so the number the viewer tapped is the number they see — and on
+   * Comments when it has none, so nobody is dropped onto an empty list.
+   */
+  initialTab?: "comments" | "callouts";
   onClose: () => void;
   onCount: (n: number) => void;
 }) {
   const { enabled, authenticated, login, getToken } = useAuth();
-  const [tab, setTab] = useState<"comments" | "callouts">("comments");
+  const [tab, setTab] = useState<"comments" | "callouts">(initialTab);
   const [comments, setComments] = useState<CommentDTO[]>([]);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);

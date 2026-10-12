@@ -123,6 +123,20 @@ export function fmtCount(n: number | null | undefined): string {
   return String(Math.round(n));
 }
 
+/**
+ * A coin's callout count, as a rail badge.
+ *
+ * `capped` means the read hit the callout feed's page ceiling, so the number is
+ * a floor and is shown as "50+". An unknown count renders as "0" — the badge
+ * fills in on the first poll, and a coin genuinely without callouts keeps it.
+ */
+export function fmtCalloutCount(
+  c: { n: number; capped: boolean } | null | undefined,
+): string {
+  if (!c) return "0";
+  return c.capped ? `${fmtCount(c.n)}+` : fmtCount(c.n);
+}
+
 export function shortAddr(a: string | null | undefined, n = 4): string {
   if (!a) return "—";
   return `${a.slice(0, n)}…${a.slice(-n)}`;

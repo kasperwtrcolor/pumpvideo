@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
-import type { AccountResponse, FeedItemDTO, FeedResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
+import type { AccountResponse, CalloutCount, CalloutCountsResponse, FeedItemDTO, FeedResponse, QuoteDTO, QuotesResponse } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { useAuth } from "./AuthBridge";
 import { BuySheet } from "./BuySheet";
 import { CommentSheet } from "./CommentSheet";
 import { ShareSheet } from "./ShareSheet";
 import { DeleteClipSheet } from "./DeleteClipSheet";
-import { fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
+import { fmtCalloutCount, fmtCount, fmtPct, fmtPrice, fmtSol, fmtUsd, shortAddr, sym, timeAgo } from "@/lib/format";
 import { artUrl } from "@/lib/art-url";
 import { newSeed } from "@/lib/shuffle";
 import { CoinAvatar } from "./CoinAvatar";
@@ -155,6 +155,10 @@ export function Feed({
   // Live prices from /api/quotes, keyed by mint. Anything absent falls back to
   // the price the feed shipped with.
   const [quotes, setQuotes] = useState<Record<string, QuoteDTO>>({});
+  // How many callouts each coin has, keyed by mint. This is what the comment
+  // icon's badge shows — a callout is a public call on the coin, so the number
+  // says something about the token rather than about this clip's comment box.
+  const [calloutCounts, setCalloutCounts] = useState<Record<string, CalloutCount>>({});
 
   const scroller = useRef<HTMLDivElement>(null);
   // A view is counted once per clip per session — re-scrolling shouldn't inflate it.
@@ -407,6 +411,20 @@ export function Feed({
       setTick((t) => t + 1);
     } catch {
       /* offline — keep the last known prices on screen rather than blank them */
+    }
+
+    // The callout count rides the same window as the prices, so the badge is
+    // already there when a clip scrolls in. It is a separate read because it is
+    // a different upstream call, and a failure here must not blank the prices.
+    try {
+      const r = await fetch(`/api/callouts/counts?mints=${encodeURIComponent(mints.join(","))}`, {
+        cache: "no-store",
+      });
+      if (!r.ok) return;
+      const j = (await r.json()) as CalloutCountsResponse;
+      if (j.counts) setCalloutCounts((c) => ({ ...c, ...j.counts }));
+    } catch {
+      /* the badge simply keeps its last value */
     }
   }, []);
 
@@ -673,6 +691,7 @@ export function Feed({
             quote={quotes[it.coin.mint]}
             samples={history.current.get(it.coin.mint) ?? []}
             tick={tick}
+            callouts={calloutCounts[it.coin.mint]}
             onLike={() => void onLike(it)}
             onFavorite={() => void onFavorite(it)}
             onBuy={() => setSheetIdx(i)}
@@ -804,6 +823,7 @@ export function Feed({
           clipId={commentFor.id}
           symbol={commentFor.coin.symbol}
           mint={commentFor.coin.mint}
+          initialTab={calloutCounts[commentFor.coin.mint]?.n ? "callouts" : "comments"}
           open
           onClose={() => setCommentFor(null)}
           onCount={(n) =>
@@ -830,6 +850,7 @@ function ClipPanel({
   quote,
   samples,
   tick,
+  callouts,
   onLike,
   onFavorite,
   onBuy,
@@ -850,6 +871,8 @@ function ClipPanel({
   quote?: QuoteDTO;
   samples: number[];
   tick: number;
+  /** How many callouts this clip's coin has, or undefined until the read lands. */
+  callouts?: CalloutCount;
   onLike: () => void;
   onFavorite: () => void;
   onBuy: () => void;
@@ -1069,8 +1092,8 @@ function ClipPanel({
           <LikeGlyph liked={liked} burst={burst} />
         </RailButton>
         <RailButton
-          label={<RollingCount value={fmtCount(counts.comments)} />}
-          sub="comment"
+          label={<RollingCount value={fmtCalloutCount(callouts)} />}
+          sub="callouts"
           onClick={onComment}
         >
           <CommentIcon className="h-8 w-8 text-white" />

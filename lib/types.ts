@@ -233,6 +233,17 @@ export type CalloutsResponse = {
 
 export type CalloutSort = "top" | "latest";
 
+/**
+ * How many callouts a coin has, as the feed's rail shows it.
+ *
+ * `capped` means the read hit the endpoint's page ceiling, so `n` is a floor —
+ * the badge renders it as "50+" rather than pretending to an exact total it
+ * cannot get.
+ */
+export type CalloutCount = { n: number; capped: boolean };
+
+export type CalloutCountsResponse = { counts: Record<string, CalloutCount> };
+
 export type PositionDTO = {
   mint: string;
   symbol: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { FeedItemDTO, QuoteDTO } from "@/lib/types";
+import type { CalloutCount, CalloutCountsResponse, FeedItemDTO, QuoteDTO } from "@/lib/types";
 import { CoinRail } from "./CoinRail";
 import { LiveTrades } from "./LiveTrades";
 import { ClipStage } from "./ClipStage";
@@ -38,6 +38,8 @@ export function DesktopFeed() {
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   /** Live prices for the wall, refreshed on a timer so the numbers move. */
   const [quotes, setQuotes] = useState<Record<string, QuoteDTO>>({});
+  /** Callout counts by mint — the badge on the comment control. */
+  const [calloutCounts, setCalloutCounts] = useState<Record<string, CalloutCount>>({});
   const [shareFor, setShareFor] = useState<FeedItemDTO | null>(null);
   const [commentFor, setCommentFor] = useState<FeedItemDTO | null>(null);
   /** The clip whose coin is being traded — one sheet, opened from the stage or
@@ -102,6 +104,19 @@ export function DesktopFeed() {
         if (alive) setQuotes(j.quotes ?? {});
       } catch {
         /* a missed tick is not worth surfacing */
+      }
+
+      // The callout tally rides the same wall. Separate read, separate failure:
+      // a bad count must not blank the prices, so it never shares their try.
+      try {
+        const r = await fetch(`/api/callouts/counts?mints=${encodeURIComponent(mints.join(","))}`, {
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        const j = (await r.json()) as CalloutCountsResponse;
+        if (alive && j.counts) setCalloutCounts((c) => ({ ...c, ...j.counts }));
+      } catch {
+        /* the badge keeps its last value */
       }
     };
     void poll();
@@ -225,6 +240,7 @@ export function DesktopFeed() {
             muted={muted}
             onToggleMute={() => setMuted((m) => !m)}
             liked={liked}
+            calloutCounts={calloutCounts}
             onLike={(i) => void onLike(i)}
             onComment={(i) => setCommentFor(items[i] ?? null)}
             onShare={(i) => setShareFor(items[i] ?? null)}
@@ -265,6 +281,7 @@ export function DesktopFeed() {
           clipId={commentFor.id}
           symbol={commentFor.coin.symbol}
           mint={commentFor.coin.mint}
+          initialTab={calloutCounts[commentFor.coin.mint]?.n ? "callouts" : "comments"}
           open
           onClose={() => setCommentFor(null)}
           onCount={() => {}}
