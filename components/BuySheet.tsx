@@ -7,6 +7,7 @@ import { CoinAvatar } from "./CoinAvatar";
 import { PairBadge } from "./PairBadge";
 import { fmtPrice, fmtSol, fmtPct, fmtUsd, sym } from "@/lib/format";
 import { usePrivy } from "@privy-io/react-auth";
+import { useAuth } from "./AuthBridge";
 import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { getBase58Decoder } from "@solana/kit";
 
@@ -69,7 +70,10 @@ export function BuySheet({
   onFilled: (next: { priceSol: number }) => void;
 }) {
   const { trader, refresh, toast, solUsd } = useTrader();
-  const { getAccessToken, login } = usePrivy();
+  const { getAccessToken } = usePrivy();
+  // Sign-in through `useAuth`, so a desktop buy button raises the mobile gate
+  // rather than a login modal for an app this machine cannot run.
+  const { login } = useAuth();
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
 

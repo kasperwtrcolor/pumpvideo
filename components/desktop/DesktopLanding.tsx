@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import type { LandingTile, LaunchTile } from "@/lib/landing";
-import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
+import { getWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
+import { showGate } from "@/lib/mobile-gate";
 import { LogoLockup } from "../Logo";
 import { MascotStack } from "../Mascots";
 import { RocketIcon, XIcon } from "../Icons";
@@ -35,7 +36,10 @@ import { Check, CoinChip, FeeRow, LaunchShowcase, Phone, Stat, useLandingData } 
  */
 export function DesktopLanding({ tiles, launches }: { tiles: LandingTile[]; launches: LaunchTile[] }) {
   const open = useSyncExternalStore(subscribeWelcome, getWelcomeOpen, () => true);
-  const enter = useCallback(() => setWelcomeOpen(false), []);
+  // Every "open the app" affordance on this page lands on the same place: the
+  // mobile gate. There is no desktop app to open, and fading the deck away to
+  // nothing would just look broken.
+  const enter = useCallback(() => showGate(), []);
   const { reels, slides, stats } = useLandingData(tiles);
   const [reelIdx, setReelIdx] = useState(0);
 

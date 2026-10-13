@@ -3,6 +3,8 @@
 import { createContext, useContext, useMemo } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { privyEnabled } from "./PrivyRoot";
+import { useIsDesktop } from "@/lib/use-desktop";
+import { showGate } from "@/lib/mobile-gate";
 
 /**
  * Auth, available whether or not Privy is configured.
@@ -38,15 +40,27 @@ export function useAuth(): Auth {
 
 function EnabledAuth({ children }: { children: React.ReactNode }) {
   const { authenticated, login, getAccessToken, ready } = usePrivy();
+  const desktop = useIsDesktop();
 
   const value = useMemo<Auth>(
     () => ({
       enabled: true,
       authenticated: ready && authenticated,
-      login: () => void login(),
+      // Login is the other half of the gate: a desktop visitor reaching for the
+      // wallet — from a buy button, a like, a comment, or anywhere else — gets
+      // the mobile screen rather than a Privy modal for an app they cannot use
+      // here. This is the single point every call site funnels through, which is
+      // why the check lives here and not at each button.
+      login: () => {
+        if (desktop) {
+          showGate();
+          return;
+        }
+        void login();
+      },
       getToken: async () => (await getAccessToken()) ?? null,
     }),
-    [ready, authenticated, login, getAccessToken],
+    [ready, authenticated, login, getAccessToken, desktop],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

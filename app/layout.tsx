@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Shell } from "@/components/Shell";
+import { InstallBridge } from "@/components/InstallBridge";
 import { TraderProvider } from "@/components/TraderProvider";
 import { PrivyRoot } from "@/components/PrivyRoot";
 import { AuthBridge } from "@/components/AuthBridge";
@@ -57,6 +58,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             below; it renders children unwrapped when no app id is configured. */}
         <PrivyRoot>
           <AuthBridge>
+            {/* Parked in the layout, not in a screen: `beforeinstallprompt`
+                fires once, early, and the install nudge may not be mounted yet
+                when it does. Renders nothing. */}
+            <InstallBridge />
             <TraderProvider initialSolUsd={usd}>
               <PrivySessionSync />
               {/* The frame is chosen by viewport in Shell: the phone chrome on a

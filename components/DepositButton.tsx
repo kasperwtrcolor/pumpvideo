@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { usePrivy } from "@privy-io/react-auth";
+import { useAuth } from "./AuthBridge";
 import { privyEnabled } from "./PrivyRoot";
 import { setAccountView } from "@/lib/account-view";
 
@@ -28,7 +28,11 @@ export function DepositButton({ overlay }: { overlay?: boolean }) {
 }
 
 function DepositButtonInner({ overlay }: { overlay?: boolean }) {
-  const { authenticated, login } = usePrivy();
+  // Through `useAuth`, not `usePrivy`, so a desktop click raises the mobile gate
+  // instead of a login modal. Every sign-in affordance has to funnel through the
+  // one place that knows about desktop; a direct `usePrivy().login()` here would
+  // quietly open a modal for an app that cannot run on this machine.
+  const { authenticated, login } = useAuth();
   const router = useRouter();
 
   const onClick = useCallback(() => {
