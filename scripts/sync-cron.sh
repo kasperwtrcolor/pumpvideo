@@ -4,16 +4,19 @@
 # Why this exists: Vercel Hobby cron jobs may only run ONCE PER DAY. Prices would
 # be up to 24h stale on a trading feed, which reads as "dead app". So the VPS —
 # which is always on and already has cron — is the scheduler, and it talks to
-# Neon directly over the network (no HTTP, no CRON_SECRET needed).
+# the database directly over the network (no HTTP, no CRON_SECRET needed).
 #
-# CADENCE: hourly (0 * * * *), not every 5 minutes.
+# CADENCE: hourly (0 * * * *). Freshness is NOT this job's — new tokens are
+# ingested every 2 minutes by scripts/ingest-cron.sh. This is the *expensive*
+# job: the whole-catalogue price walk plus trending, stonkfun, holders and dust.
 #
-# The cadence is a *database cost* decision, not a freshness one. Neon's free
-# tier bills compute-hours (191.9/month) and auto-suspends a database after ~5
-# minutes idle. A 5-minute keeper never lets it suspend, so it billed 24/7 —
-# 720 compute-hours a month, which is exhausted in 8 days. On an hourly cron the
-# database sleeps between runs: roughly 10-12 awake minutes an hour, ~120-144
-# compute-hours a month, inside the free allowance.
+# The cadence is a *database cost* decision, not a freshness one. The walk
+# updates every visible coin and appends a PricePoint row to each, so running it
+# every 5 minutes would multiply PricePoint growth 12x for a freshness gain the
+# 2-minute ingest tick already delivers. (The original rationale here was Neon's
+# compute-hour billing and its ~5-minute auto-suspend; the database is Railway
+# Postgres now, so that specific constraint is gone — the row-growth argument
+# above is what keeps this hourly.)
 #
 # Every knob below is a *ceiling per run*, so the cadence change multiplies
 # through all of them: running 12x less often is 12x less coverage unless the
@@ -37,6 +40,15 @@ fi
 
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
+
+# The cron talks to Postgres over the DIRECT connection, not the PgBouncer pooler
+# the serverless app uses. Measured from this VPS: a pooled round trip is ~640ms
+# and the direct connection ~125ms, and the catalogue walk is 2-4 queries per
+# coin — so the pooler alone pushed a 600-coin sweep past the 7-minute timeout
+# (it took 161s on the direct connection). The pooler exists to serve many
+# short-lived serverless connections; a single long-running cron should hold one
+# direct connection instead. Fall back to DATABASE_URL if DIRECT_URL is unset.
+export DATABASE_URL="${DIRECT_URL:-$DATABASE_URL}"
 
 # `--limit 600` is the coverage knob, and it must exceed the WHOLE catalogue —
 # not just its head. Top trusts a coin's stored market cap only if the keeper

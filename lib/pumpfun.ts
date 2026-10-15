@@ -85,7 +85,20 @@ export async function fetchCoins(opts: {
     const body = await res.text().catch(() => "");
     lastErr = new Error(`pump.fun ${res.status}: ${body.slice(0, 120)}`);
 
-    // 429 and 5xx are transient. Anything else (404, 403) is permanent — don't
+    // Cloudflare fronts pump.fun's API and now challenges datacenter IPs — both
+    // this VPS and the Vercel deployment get a 403 "Just a moment..." on every
+    // request, which is what froze new-token ingestion outright. Before treating
+    // the 403 as final, re-ask the reader-relay for the same URL: it fetches from
+    // a network Cloudflare does not challenge and hands back pump.fun's *own*
+    // JSON, so everything downstream (the gates, the mapping, the keeper) is
+    // unchanged. Only 403 is relayed — a 404 or a malformed body must surface as
+    // itself, not be laundered through a proxy.
+    if (res.status === 403) {
+      const relayed = await fetchViaRelay(url);
+      if (relayed) return relayed;
+    }
+
+    // 429 and 5xx are transient. Anything else (403, 404) is permanent — don't
     // burn attempts on it.
     if (res.status !== 429 && res.status < 500) throw lastErr;
   }
@@ -142,6 +155,15 @@ export async function fetchCoinsByMints(
         // changed" rather than "we never looked". Record it and move on; if the
         // ranking is genuinely exhausted, batch.length < pageSize handles it.
         errors.push(`${sort}@${p * pageSize}: ${(e as Error).message}`);
+        // A *permanent* failure — pump.fun answering 403 from behind Cloudflare,
+        // or a 404 on the ranking — repeats identically on every remaining page
+        // and every remaining sort. Continuing to page burns the whole tick on
+        // ~20 guaranteed failures, each sitting behind a multi-second Cloudflare
+        // challenge; that is what pushed the hourly keeper past its timeout and
+        // left it silently dead for weeks. Bail out of the entire sweep so the
+        // caller falls straight through to its fallback (Jupiter by mint)
+        // instead of waiting on requests that cannot succeed.
+        if (isPermanentPumpError(e)) return found;
         break;
       }
       for (const c of batch) {
@@ -159,6 +181,91 @@ export async function fetchCoinsByMints(
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * True when a pump.fun error will repeat on every subsequent request.
+ *
+ * A 4xx that is not 429 is permanent: Cloudflare's 403 "Just a moment…"
+ * challenge, a 404, a 401. 429 and 5xx are transient and worth paging past.
+ *
+ * `fetchCoins` encodes the status in the message it throws (`pump.fun 403: …`),
+ * which is the only structured signal available without widening its return
+ * type; the message is already truncated to the status plus 120 body chars.
+ */
+function isPermanentPumpError(e: unknown): boolean {
+  const m = /pump\.fun (\d{3})/.exec((e as Error)?.message ?? "");
+  if (!m) return false;
+  const status = Number(m[1]);
+  return status >= 400 && status < 500 && status !== 429;
+}
+
+/**
+ * Reader-relay fallback for a Cloudflare-blocked pump.fun page.
+ *
+ * pump.fun's API sits behind Cloudflare, which now challenges datacenter IPs:
+ * both this VPS and the Vercel deployment get `403 Just a moment...` on every
+ * request. Without a way round it, new-token ingestion simply stops and the feed
+ * freezes on whatever was popular when the block began.
+ *
+ * The relay fetches the *same URL* from a network Cloudflare does not challenge
+ * and returns pump.fun's own JSON, so no gate, mapping or keeper logic changes —
+ * this is transport only. It prepends a small header (`Title: … Markdown
+ * Content:`) to whatever it fetched; that is stripped and the JSON array parsed
+ * out, which is why the body is sliced from the first `[` to the last `]`
+ * rather than parsed whole.
+ *
+ * BUDGETED on purpose. The free tier allows ~20 requests/minute, and a single
+ * sweep can page ~20 times, so an unbounded relay would rate-limit itself and
+ * take the sweep down with it. The budget is deliberately below the cap; when it
+ * is exhausted the relay returns null and the caller falls through to its normal
+ * failure path (the sweep then reaches the Jupiter-by-mint fallback). A relay we
+ * cannot use is a relay we do not use — never a hang.
+ */
+const RELAY_BASE = "https://r.jina.ai/";
+const RELAY_PER_MIN = 15;
+let relayHits: number[] = [];
+
+function relayBudget(): boolean {
+  const now = Date.now();
+  relayHits = relayHits.filter((t) => now - t < 60_000);
+  if (relayHits.length >= RELAY_PER_MIN) return false;
+  relayHits.push(now);
+  return true;
+}
+
+async function fetchViaRelay(url: string): Promise<PumpCoin[] | null> {
+  if (!relayBudget()) return null;
+  try {
+    const res = await fetch(`${RELAY_BASE}${url}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    // The relay answers in one of two shapes depending on negotiation, and both
+    // carry pump.fun's body intact:
+    //   1. a JSON envelope — { code, data: { title, url, content: "<body>" } },
+    //      which is what an `Accept: application/json` caller gets; and
+    //   2. a read-markdown form — "Title: …\n\nMarkdown Content:\n<body>".
+    // Unwrap whichever arrived, then parse the array itself.
+    let body = text;
+    try {
+      const env = JSON.parse(text) as { data?: { content?: unknown } };
+      if (typeof env?.data?.content === "string") body = env.data.content;
+    } catch {
+      const marker = text.indexOf("Markdown Content:");
+      if (marker !== -1) body = text.slice(marker + "Markdown Content:".length);
+    }
+    const start = body.indexOf("[");
+    const end = body.lastIndexOf("]");
+    if (start === -1 || end === -1 || end <= start) return null;
+    const parsed = JSON.parse(body.slice(start, end + 1));
+    return Array.isArray(parsed) ? (parsed as PumpCoin[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Map an API record onto our Coin columns. */

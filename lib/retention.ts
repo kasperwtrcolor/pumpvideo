@@ -2,7 +2,7 @@ import { prisma } from "./db";
 import { MIN_MCAP_SOL } from "./ingest";
 import { fetchCoinsByMints, toCoinRecord } from "./pumpfun";
 import { fetchDexQuotes } from "./dexscreener";
-import { fetchJupPrices } from "./jup-price";
+import { fetchJupPrices, type JupPrice } from "./jup-price";
 import { MIN_HOLDERS } from "./holders";
 
 /**
@@ -557,11 +557,42 @@ export async function hideDeadMarkets(
   const ids = rows.map((r) => r.id);
   if (!apply || ids.length === 0) return { candidates: ids.length, hidden: 0, refused: null };
 
+  // MEASURE BEFORE HIDING.
+  //
+  // `lastSyncedAt` is the only signal above, and it is old for two very
+  // different coins: one no source can quote any more (genuinely dead), and one
+  // the keeper simply never walked — the catalogue sweep only visits the top
+  // `--limit` by market cap each tick, so most of a 3,000-coin tail is never
+  // attempted and its timestamp ages out on its own. Hiding on the timestamp
+  // alone therefore hides live coins in bulk: the first working tick after a
+  // keeper outage hid 1,000 of them in one pass.
+  //
+  // Jupiter prices a pump.fun bonding curve by mint (see lib/jup-price.ts), so
+  // it answers for the on-curve coins the walk never reaches. A coin it can quote
+  // is alive and left alone; only one with no route anywhere is a dead market.
+  // One batched call per 50 candidates — no sweep and no RPC.
+  const priced = await fetchJupPrices(rows.map((r) => r.mint)).catch(
+    () => new Map<string, JupPrice>(),
+  );
+  // An empty result is "we could not read Jupiter", never "nothing is priceable":
+  // acting on it would hide the entire candidate set. Refuse, like the sweep-side
+  // guard does on a partial view.
+  if (priced.size === 0 && rows.length > 0) {
+    return {
+      candidates: rows.length,
+      hidden: 0,
+      refused: "Jupiter returned no prices — refusing to hide on an unread source",
+    };
+  }
+
+  const dead = rows.filter((r) => !priced.has(r.mint));
+  if (dead.length === 0) return { candidates: rows.length, hidden: 0, refused: null };
+
   const res = await prisma.coin.updateMany({
-    where: { id: { in: ids } },
+    where: { id: { in: dead.map((r) => r.id) } },
     data: { hiddenAt: new Date() },
   });
-  return { candidates: ids.length, hidden: res.count, refused: null };
+  return { candidates: rows.length, hidden: res.count, refused: null };
 }
 
 /**
