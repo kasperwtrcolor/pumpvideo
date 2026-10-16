@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { signSiwsChallenge } from "@/lib/siws-client";
 import { useTrader } from "./TraderProvider";
 
 /**
@@ -18,7 +19,7 @@ import { useTrader } from "./TraderProvider";
  * so the next request provisions a fresh anonymous trader.
  */
 export function SiwsSession() {
-  const { publicKey, connected, signMessage, disconnect } = useWallet();
+  const { publicKey, connected, signMessage, disconnect, wallet: activeWallet } = useWallet();
   const { refresh, toast } = useTrader();
   const synced = useRef<string | null>(null);
   const wasConnected = useRef(false);
@@ -54,7 +55,11 @@ export function SiwsSession() {
         const { message } = (await nonceRes.json()) as { message: string };
 
         // 2. Sign it with the wallet (a plain message signature — no transaction).
-        const sigBytes = await signMessage(new TextEncoder().encode(message));
+        const sigBytes = await signSiwsChallenge({
+          message,
+          walletName: activeWallet?.adapter.name,
+          signMessage,
+        });
         const signature = btoa(String.fromCharCode(...sigBytes));
 
         // 3. Exchange the signed challenge for a session.
@@ -83,7 +88,7 @@ export function SiwsSession() {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, signMessage, refresh, toast, disconnect]);
+  }, [connected, publicKey, signMessage, activeWallet, refresh, toast, disconnect]);
 
   return null;
 }

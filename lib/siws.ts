@@ -28,8 +28,16 @@ export const SIWS_NONCE_COOKIE = "pemp_siws_nonce";
 /** How long a challenge stays valid. Short — a login should be one tap away. */
 export const NONCE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * ASCII only, deliberately.
+ *
+ * Phantom decides how to render a signing request partly by inspecting the
+ * message bytes, and a message carrying anything outside plain ASCII is the
+ * classic trigger for "cannot be shown due to invalid formatting". A SIWS
+ * challenge never needs non-ASCII, so there is no reason to risk it.
+ */
 export const SIWS_STATEMENT =
-  "Sign in to Pemp. This proves you own this wallet — it costs nothing and sends no transaction.";
+  "Sign in to Pemp. This proves you own this wallet - it costs nothing and sends no transaction.";
 
 /** Statement shown when signing to change where creator fees are paid. */
 export const PAYOUT_STATEMENT =

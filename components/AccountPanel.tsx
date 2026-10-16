@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { QRCodeSVG } from "qrcode.react";
+import { signSiwsChallenge } from "@/lib/siws-client";
 import { useAuth } from "./AuthBridge";
 import { useTrader } from "./TraderProvider";
 import { CheckIcon, ExternalIcon } from "./Icons";
@@ -56,7 +57,7 @@ function Row({
 export function AccountPanel() {
   const { getToken } = useAuth();
   const router = useRouter();
-  const { publicKey, sendTransaction, signMessage, disconnect } = useWallet();
+  const { publicKey, sendTransaction, signMessage, disconnect, wallet } = useWallet();
   const { connection } = useConnection();
   const { trader, account, refresh, toast, solUsd } = useTrader();
 
@@ -174,7 +175,7 @@ export function AccountPanel() {
       if (!nonceRes.ok) throw new Error("could not start");
       const { message } = (await nonceRes.json()) as { message: string };
 
-      const sigBytes = await signMessage(new TextEncoder().encode(message));
+      const sigBytes = await signSiwsChallenge({ message, walletName: wallet?.adapter.name, signMessage });
       const signature = btoa(String.fromCharCode(...sigBytes));
 
       const r = await fetch("/api/account/payout", {
@@ -194,7 +195,7 @@ export function AccountPanel() {
     } finally {
       setBusy(false);
     }
-  }, [publicKey, signMessage, refresh, toast]);
+  }, [publicKey, signMessage, wallet, refresh, toast]);
 
   const doLogout = useCallback(async () => {
     setBusy(true);
