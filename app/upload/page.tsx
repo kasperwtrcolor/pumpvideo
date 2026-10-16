@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { usePrivy } from "@privy-io/react-auth";
+import { useAuth } from "@/components/AuthBridge";
 import { useTrader } from "@/components/TraderProvider";
 import { sym } from "@/lib/format";
 import { Mascot } from "@/components/Mascots";
@@ -50,7 +50,7 @@ async function failure(res: Response, fallback: string): Promise<Error> {
 
 export default function UploadPage() {
   const { toast } = useTrader();
-  const { login, authenticated, getAccessToken } = usePrivy();
+  const { login, authenticated, getToken } = useAuth();
   const router = useRouter();
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -112,7 +112,7 @@ export default function UploadPage() {
     setPct(0);
 
     try {
-      const token = await getAccessToken();
+      const token = await getToken();
       if (!token) throw new Error("session expired — log in again");
       const auth = { authorization: `Bearer ${token}` };
 
@@ -163,7 +163,7 @@ export default function UploadPage() {
     } finally {
       setBusy(false);
     }
-  }, [file, tokenAddress, caption, getAccessToken, toast]);
+  }, [file, tokenAddress, caption, getToken, toast]);
 
   if (!authenticated) {
     return (

@@ -2,14 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CoinDTO } from "@/lib/types";
+import { VersionedTransaction } from "@solana/web3.js";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useTrader } from "./TraderProvider";
 import { CoinAvatar } from "./CoinAvatar";
 import { PairBadge } from "./PairBadge";
 import { fmtPrice, fmtSol, fmtPct, fmtUsd, sym } from "@/lib/format";
-import { usePrivy } from "@privy-io/react-auth";
 import { useAuth } from "./AuthBridge";
-import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
-import { getBase58Decoder } from "@solana/kit";
 
 /** What /api/trade/live/prepare hands back for the review step. */
 type FeeReport = {
@@ -70,12 +69,11 @@ export function BuySheet({
   onFilled: (next: { priceSol: number }) => void;
 }) {
   const { trader, refresh, toast, solUsd } = useTrader();
-  const { getAccessToken } = usePrivy();
   // Sign-in through `useAuth`, so a desktop buy button raises the mobile gate
-  // rather than a login modal for an app this machine cannot run.
-  const { login } = useAuth();
-  const { wallets } = useWallets();
-  const { signAndSendTransaction } = useSignAndSendTransaction();
+  // rather than a wallet modal for an app this machine cannot run.
+  const { login, getToken } = useAuth();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [solAmount, setSolAmount] = useState(0.25);
@@ -86,14 +84,14 @@ export function BuySheet({
   const [liveSol, setLiveSol] = useState<number | null>(null);
   const [liveHeld, setLiveHeld] = useState<number | null>(null);
 
-  const wallet = wallets[0] ?? null;
+  const address = publicKey?.toBase58() ?? null;
   const canTrade = trader?.canTrade !== false;
 
   // Real balances only. These are read from chain, never from a local estimate.
   useEffect(() => {
-    if (!open || !wallet?.address) return;
+    if (!open || !address) return;
     fetch(
-      `/api/wallet/balance?address=${encodeURIComponent(wallet.address)}&mint=${encodeURIComponent(coin.mint)}`,
+      `/api/wallet/balance?address=${encodeURIComponent(address)}&mint=${encodeURIComponent(coin.mint)}`,
       { cache: "no-store" },
     )
       .then((r) => r.json())
@@ -102,7 +100,7 @@ export function BuySheet({
         if (Number.isFinite(j.tokens)) setLiveHeld(j.tokens);
       })
       .catch(() => {});
-  }, [open, wallet?.address, coin.mint, result]);
+  }, [open, address, coin.mint, result]);
 
   const close = useCallback(() => {
     setLiveQuote(null);
@@ -112,15 +110,15 @@ export function BuySheet({
 
   /** Step 1: ask the server for an unsigned swap. */
   const requestLiveQuote = useCallback(async () => {
-    if (!wallet) {
-      toast("Log in to trade", "bad");
+    if (!address) {
+      toast("Connect a wallet to trade", "bad");
       return;
     }
     setBusy(true);
     setResult(null);
     try {
-      const token = await getAccessToken();
-      if (!token) throw new Error("session expired — log in again");
+      const token = await getToken();
+      if (!token) throw new Error("connect your wallet first");
 
       const body =
         side === "BUY"
@@ -142,25 +140,22 @@ export function BuySheet({
     } finally {
       setBusy(false);
     }
-  }, [wallet, getAccessToken, side, coin.mint, solAmount, fraction, clipId, toast]);
+  }, [address, getToken, side, coin.mint, solAmount, fraction, clipId, toast]);
 
   /** Steps 2 and 3: sign locally, then have the server verify it on chain. */
   const signAndConfirm = useCallback(async () => {
-    if (!liveQuote || !wallet) return;
+    if (!liveQuote || !address) return;
     setBusy(true);
     setResult(null);
     try {
-      const token = await getAccessToken();
-      if (!token) throw new Error("session expired — log in again");
+      const token = await getToken();
+      if (!token) throw new Error("connect your wallet first");
 
-      // The private key never leaves Privy: we hand over transaction bytes and
-      // get back a signature.
-      const sigBytes = await signAndSendTransaction({
-        transaction: b64ToBytes(liveQuote.transaction),
-        wallet,
-        chain: "solana:mainnet",
-      });
-      const signature = getBase58Decoder().decode(sigBytes.signature);
+      // The wallet signs locally — the key never leaves the extension. The
+      // server handed us an unsigned VersionedTransaction; deserialise and
+      // submit it through the same RPC the app reads balances from.
+      const vtx = VersionedTransaction.deserialize(b64ToBytes(liveQuote.transaction));
+      const signature = await sendTransaction(vtx, connection);
 
       const r = await fetch("/api/trade/live/confirm", {
         method: "POST",
@@ -189,9 +184,10 @@ export function BuySheet({
     }
   }, [
     liveQuote,
-    wallet,
-    getAccessToken,
-    signAndSendTransaction,
+    address,
+    getToken,
+    sendTransaction,
+    connection,
     coin.mint,
     coin.symbol,
     coin.priceSol,
@@ -259,16 +255,16 @@ export function BuySheet({
         </div>
 
         {/* logged-out prompt */}
-        {!wallet && (
+        {!address && (
           <div className="mx-4 mt-3 rounded-xl border border-line bg-panel2 p-3 text-center">
             <p className="text-[11px] text-muted">
-              Trading needs a wallet. Log in and a self-custodial Solana wallet is created for you.
+              Trading needs a wallet. Connect your own self-custodial Solana wallet to trade.
             </p>
             <button
               onClick={() => void login()}
               className="mt-2 rounded-xl burn-gradient px-4 py-2 text-[12px] font-black text-black"
             >
-              Log in
+              Connect wallet
             </button>
           </div>
         )}
@@ -466,7 +462,7 @@ export function BuySheet({
 
             <button
               onClick={() => void requestLiveQuote()}
-              disabled={disabled || !wallet}
+              disabled={disabled || !address}
               className={`mx-4 mt-4 w-[calc(100%-2rem)] rounded-xl py-3.5 text-sm font-black tracking-wide transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 side === "BUY" ? "burn-gradient text-black" : "bg-down text-black"
               }`}

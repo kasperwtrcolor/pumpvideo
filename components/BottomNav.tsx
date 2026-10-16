@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { usePrivy } from "@privy-io/react-auth";
-import { privyEnabled } from "./PrivyRoot";
+import { useAuth } from "./AuthBridge";
 import { useTrader } from "./TraderProvider";
 import { ChartIcon, HomeIcon, PersonIcon, PlusIcon, StarIcon } from "./Icons";
 
@@ -95,18 +94,11 @@ export function BottomNav() {
 }
 
 /**
- * Avatar when signed in, person glyph otherwise.
- *
- * Split so `usePrivy()` is only ever called when a provider actually exists —
- * it throws without one, and hooks cannot be called conditionally.
+ * Avatar when a wallet is connected (and the trader has an avatar), person glyph
+ * otherwise.
  */
 function AccountGlyph() {
-  if (!privyEnabled) return <PersonIcon className="h-7 w-7" />;
-  return <AccountGlyphInner />;
-}
-
-function AccountGlyphInner() {
-  const { authenticated } = usePrivy();
+  const { authenticated } = useAuth();
   const { trader } = useTrader();
 
   if (authenticated && trader?.avatarUrl) {

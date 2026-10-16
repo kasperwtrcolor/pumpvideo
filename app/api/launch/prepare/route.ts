@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/launch/prepare
- * Authorization: Bearer <privy access token>
+ * Authorization: Bearer *** wallet address>
  *
  * Step 1 of 3 for a real launch:
  *   1. (here) upload the metadata, then build an UNSIGNED `create_v2` tx

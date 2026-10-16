@@ -91,7 +91,10 @@ export function publicTrader(t: {
     avatarUrl: t.avatarUrl,
     email: t.email,
     loginMethod: t.loginMethod,
-    loggedIn: Boolean(t.privyDid),
+    // "Logged in" now means "has a wallet bound to this session" — the SIWS
+    // cookie is only minted after a verified signature, so a bound wallet is
+    // exactly the proof the old privyDid used to carry.
+    loggedIn: Boolean(t.walletAddress),
     // Whether this *app* can place real on-chain trades at all. Not a statement
     // about the viewer's wallet — the trade sheet checks that separately. It is
     // what lets an operator pin the app to read-only with LIVE_TRADING_ENABLED=false.

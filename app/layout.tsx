@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "@solana/wallet-adapter-react-ui/styles.css";
 import { Shell } from "@/components/Shell";
 import { InstallBridge } from "@/components/InstallBridge";
 import { TraderProvider } from "@/components/TraderProvider";
-import { PrivyRoot } from "@/components/PrivyRoot";
+import { WalletRoot } from "@/components/WalletRoot";
 import { AuthBridge } from "@/components/AuthBridge";
-import { PrivySessionSync } from "@/components/PrivySessionSync";
+import { SiwsSession } from "@/components/SiwsSession";
 import { solUsd } from "@/lib/sol-price";
 
 export const metadata: Metadata = {
@@ -54,16 +55,16 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full">
       <body className="h-full bg-bg text-ink">
-        {/* PrivyRoot is outermost so its context is available to everything
-            below; it renders children unwrapped when no app id is configured. */}
-        <PrivyRoot>
+        {/* WalletRoot is outermost so its wallet context is available to
+            everything below, including the SIWS handshake. */}
+        <WalletRoot>
           <AuthBridge>
             {/* Parked in the layout, not in a screen: `beforeinstallprompt`
                 fires once, early, and the install nudge may not be mounted yet
                 when it does. Renders nothing. */}
             <InstallBridge />
             <TraderProvider initialSolUsd={usd}>
-              <PrivySessionSync />
+              <SiwsSession />
               {/* The frame is chosen by viewport in Shell: the phone chrome on a
                   narrow screen, the wide four-region shell on a desktop. `relative`
                   anchors AppHeader's overlay mode on the feed, where it takes no
@@ -71,7 +72,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
               <Shell>{children}</Shell>
             </TraderProvider>
           </AuthBridge>
-        </PrivyRoot>
+        </WalletRoot>
       </body>
     </html>
   );

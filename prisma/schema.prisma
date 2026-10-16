@@ -211,7 +211,21 @@ model Clip {
 model Trader {
   id            String  @id @default(cuid())
   handle        String  @unique // cookie/session identity, e.g. "anon-8f3a2c…"
-  walletAddress String? @unique // the account's Solana wallet (embedded or linked)
+  walletAddress String? @unique // the account's Solana wallet (connected, self-custodial)
+
+  /// Where this trader's creator fees are PAID, when it differs from the wallet
+  /// they currently have connected.
+  ///
+  /// Needed because a wallet address is no longer stable. Under the old embedded
+  /// -wallet login a trader had exactly one wallet, forever, so a clip could
+  /// freeze `creatorWallet` at upload and never think about it again. With
+  /// connect-wallet, a trader can connect a different wallet any time — and a
+  /// clip frozen to an address they no longer control would silently pay a
+  /// stranger, or a wallet they lost. This column is the trader's *stated*
+  /// payout address; uploads copy it onto the clip, and changing it (proven by a
+  /// signature) re-points their existing clips. Null means "use walletAddress".
+  payoutWallet String?
+
   displayName   String?
   avatarUrl     String?
 
@@ -228,7 +242,8 @@ model Trader {
   followerCount  Int @default(0)
   followingCount Int @default(0)
 
-  // --- Privy identity. All null for a pure anonymous viewer. ---
+  // --- Legacy. All null now that login is wallet-connect (SIWS). Kept so old
+  //     rows and the public trader shape don't need a destructive migration. ---
   privyDid    String? @unique // "did:privy:…"
   email       String?
   loginMethod String? // EMAIL | GOOGLE | TWITTER

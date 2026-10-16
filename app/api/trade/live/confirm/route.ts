@@ -5,7 +5,7 @@ import { Connection, SystemProgram } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 import { TREASURY_VAULT } from "@/lib/fees";
-import { privyConfigured, traderFromAuthHeader } from "@/lib/privy";
+import { requireTrader } from "@/lib/auth";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +40,6 @@ type TokenBalance = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!privyConfigured()) {
-    return NextResponse.json({ error: "PRIVY_NOT_CONFIGURED" }, { status: 503 });
-  }
-
   const limit = rateLimit(`confirm:${clientKey(req)}`, 30, 60_000);
   if (!limit.ok) {
     return NextResponse.json(
@@ -52,15 +48,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let trader;
-  try {
-    trader = await traderFromAuthHeader(req);
-  } catch {
-    return NextResponse.json({ error: "INVALID_TOKEN" }, { status: 401 });
-  }
-  if (!trader) {
-    return NextResponse.json({ error: "NOT_AUTHENTICATED" }, { status: 401 });
-  }
+  const auth = await requireTrader(req);
+  if ("response" in auth) return auth.response;
+  const { trader } = auth;
   if (!trader.walletAddress) {
     return NextResponse.json({ error: "NO_WALLET" }, { status: 409 });
   }

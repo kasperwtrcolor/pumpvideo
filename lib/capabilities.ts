@@ -19,15 +19,6 @@ export function liveTradingEnabled(): boolean {
   return process.env.LIVE_TRADING_ENABLED !== "false";
 }
 
-/** Whether the Privy app id is present, i.e. whether login can be offered. */
-export function privyAppId(): string | null {
-  return process.env.NEXT_PUBLIC_PRIVY_APP_ID?.trim() || null;
-}
-
-export function privyConfigured(): boolean {
-  return Boolean(privyAppId());
-}
-
 /** Public RPC used for read-only balance checks in the browser. */
 export function publicSolanaRpc(): string {
   return process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim() || "https://api.mainnet-beta.solana.com";

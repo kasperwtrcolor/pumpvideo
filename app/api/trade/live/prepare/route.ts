@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { SOLANA_RPC } from "@/lib/pumpfun";
-import { privyConfigured, traderFromAuthHeader } from "@/lib/privy";
+import { requireTrader } from "@/lib/auth";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import {
   JupiterError,
@@ -56,10 +56,6 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
 const MIN_BUY_LAMPORTS = 1_000_000; // 0.001 SOL
 
 export async function POST(req: NextRequest) {
-  if (!privyConfigured()) {
-    return NextResponse.json({ error: "PRIVY_NOT_CONFIGURED" }, { status: 503 });
-  }
-
   const limit = rateLimit(`live:${clientKey(req)}`, 30, 60_000);
   if (!limit.ok) {
     return NextResponse.json(
@@ -68,15 +64,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let trader;
-  try {
-    trader = await traderFromAuthHeader(req);
-  } catch {
-    return NextResponse.json({ error: "INVALID_TOKEN" }, { status: 401 });
-  }
-  if (!trader) {
-    return NextResponse.json({ error: "NOT_AUTHENTICATED", detail: "log in first" }, { status: 401 });
-  }
+  const auth = await requireTrader(req);
+  if ("response" in auth) return auth.response;
+  const { trader } = auth;
   if (!trader.walletAddress) {
     return NextResponse.json(
       { error: "NO_WALLET", detail: "no wallet is attached to this account" },
