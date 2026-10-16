@@ -254,8 +254,89 @@ model Trader {
   notifications     Notification[] @relation("NotifTo")
   notificationsSent Notification[] @relation("NotifFrom")
 
+  /// Allocations this trader's wallet qualified for. Read-only from here:
+  /// a snapshot is a fact about a moment, so nothing in the airdrop tables is
+  /// ever updated — a new snapshot is taken instead.
+  airdropAllocations AirdropAllocation[]
+
   @@index([privyDid])
   @@index([followerCount])
+}
+
+/// A frozen, published snapshot of who qualified for the $pemp airdrop and how
+/// much each wallet is owed.
+///
+/// Append-only by design. The whole reason this table exists is that eligibility
+/// cannot be reconstructed honestly after a token launches: the moment $pemp
+/// trades, every incentive points at gaming whatever formula is used. So the
+/// allocation is derived from activity that happened *before* the cutoff, frozen
+/// here, hashed, and published — and the hash is what settles any later dispute.
+model AirdropSnapshot {
+  id    String @id @default(cuid())
+  /// Human label, unique — e.g. "genesis-2026-03". The read API and the
+  /// published CSV both key on this, so a label is never reused.
+  label String @unique
+
+  /// The instant eligibility was frozen. Every allocation is a function of how
+  /// the ledger stood at this moment.
+  cutoff DateTime
+
+  /// The published rules, stored verbatim. A later change to the weights in
+  /// lib/points.ts must not be able to silently rewrite the terms people were
+  /// promised, so the rules ride along with the numbers they produced.
+  criteria Json
+
+  /// SHA-256 over the canonical (wallet, points) list (lib/airdrop.ts). Computed
+  /// before the token exists, so the split is verifiable and unchallengeable.
+  manifestHash String
+
+  totalWallets Int   @default(0)
+  totalPoints  Float @default(0)
+
+  /// Total $pemp reserved for this snapshot, if the pool was known at freeze
+  /// time. Null means "amounts announced later" — per-wallet *shares* are still
+  /// frozen, so the split is fixed even while the absolute size is not.
+  tokenPool Float?
+
+  createdAt DateTime @default(now())
+
+  allocations AirdropAllocation[]
+}
+
+/// One wallet's frozen allocation within a snapshot. The claim key is `wallet`;
+/// a wallet gets exactly one allocation per snapshot, which the unique key
+/// enforces.
+model AirdropAllocation {
+  id         String          @id @default(cuid())
+  snapshotId String
+  snapshot   AirdropSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  /// Lowercased Solana wallet. Base58 is case-sensitive, so it is stored as
+  /// given but matched case-insensitively by the claim flow.
+  wallet String
+
+  /// Points earned per the snapshot's criteria, frozen at the cutoff.
+  points Float
+
+  /// Share of the pool, 0..1. Stored rather than derived so the split is
+  /// reproducible even if the pool size is decided or revised after publication.
+  sharePct Float
+
+  /// Absolute token amount when the pool was known at freeze time, else null.
+  tokenAmount Float?
+
+  /// 1-based rank by points, ties broken by wallet so a re-run is identical.
+  rank Int
+
+  /// The trader the wallet belonged to at freeze time, for support lookup.
+  /// SetNull on delete: removing a trader must never mutate a frozen snapshot.
+  traderId  String?
+  trader    Trader? @relation(fields: [traderId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@unique([snapshotId, wallet])
+  @@index([wallet])
+  @@index([snapshotId, rank])
 }
 
 /// Current holding per coin, per trader — a mirror of what the wallet holds.
