@@ -22,7 +22,7 @@
  * at /account on their own.
  */
 
-export type AccountView = "main" | "receive" | "withdraw" | "payout";
+export type AccountView = "main" | "receive" | "withdraw" | "export";
 
 type Listener = () => void;
 

@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Keypair, VersionedTransaction, Connection } from "@solana/web3.js";
-import { useAuth } from "@/components/AuthBridge";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { usePrivy } from "@privy-io/react-auth";
+import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { useTrader } from "@/components/TraderProvider";
 import { useIsDesktop } from "@/lib/use-desktop";
 import { publicSolanaRpc } from "@/lib/capabilities";
@@ -140,12 +140,12 @@ async function uploadOne(
 
 export default function LaunchPage() {
   const { toast } = useTrader();
-  const { login, authenticated, getToken } = useAuth();
-  const { publicKey, signTransaction } = useWallet();
-  useConnection();
+  const { login, authenticated, getAccessToken } = usePrivy();
+  const { wallets } = useWallets();
+  const { signTransaction } = useSignTransaction();
   const desktop = useIsDesktop();
 
-  const address = publicKey?.toBase58() ?? null;
+  const wallet = wallets[0] ?? null;
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -205,12 +205,8 @@ export default function LaunchPage() {
 
   const start = useCallback(async () => {
     if (!file || !kind) return;
-    if (!address) {
-      toast("Connect a wallet to launch", "bad");
-      return;
-    }
-    if (!signTransaction) {
-      toast("this wallet cannot sign transactions", "bad");
+    if (!wallet) {
+      toast("Log in to launch", "bad");
       return;
     }
     if (!name.trim() || !symbol.trim()) {
@@ -229,7 +225,7 @@ export default function LaunchPage() {
     setPhase("preparing");
 
     try {
-      const token = await getToken();
+      const token = await getAccessToken();
       if (!token) throw new Error("session expired — log in again");
       const auth = { authorization: `Bearer ${token}` };
 
@@ -273,15 +269,19 @@ export default function LaunchPage() {
 
       // 4. Sign, then send ourselves.
       //
-      //    Order matters. The wallet signs the *unsigned* transaction (so there
-      //    is no question of it preserving a signature it did not make), then we
-      //    add the throwaway mint keypair's signature locally and broadcast.
-      //    Doing it the other way — partial-sign then hand the bytes to the
-      //    wallet — would depend on the wallet merging rather than replacing
-      //    signatures.
+      //    Order matters. Privy signs the *unsigned* transaction (so there is no
+      //    question of it preserving a signature it did not make), then we add
+      //    the throwaway mint keypair's signature locally and broadcast. Doing
+      //    it the other way — partial-sign then hand the bytes to the wallet —
+      //    would depend on the wallet merging rather than replacing signatures.
       setPhase("signing");
       const unsigned = VersionedTransaction.deserialize(b64ToBytes(prepJson.transaction as string));
-      const finalTx = await signTransaction(unsigned);
+      const signed = await signTransaction({
+        transaction: unsigned.serialize(),
+        wallet,
+        chain: "solana:mainnet",
+      });
+      const finalTx = VersionedTransaction.deserialize(signed.signedTransaction);
       finalTx.sign([mintKeypair]);
 
       const connection = new Connection(publicSolanaRpc(), "confirmed");
@@ -328,8 +328,8 @@ export default function LaunchPage() {
       setPhase("idle");
     }
   }, [
-    file, kind, address, name, symbol, description, poolPair, customMint, rewardTo,
-    twitter, telegram, website, getToken, signTransaction, toast,
+    file, kind, wallet, name, symbol, description, poolPair, customMint, rewardTo,
+    twitter, telegram, website, getAccessToken, signTransaction, toast,
   ]);
 
   /* ----------------------------- signed out ----------------------------- */
@@ -564,10 +564,10 @@ export default function LaunchPage() {
       </button>
 
       <p className="text-center text-[10px] leading-relaxed text-muted">
-        {address ? (
+        {wallet ? (
           <>
             The launch costs ~{EST_LAUNCH_SOL} SOL, paid from your wallet{" "}
-            <span className="font-mono">{`${address.slice(0, 4)}…${address.slice(-4)}`}</span>.
+            <span className="font-mono">{`${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}`}</span>.
           </>
         ) : (
           "A wallet is required to pay the launch fee."

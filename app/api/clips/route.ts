@@ -4,7 +4,6 @@ import { z } from "zod";
 import { PublicKey } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
-import { payoutAddress } from "@/lib/session";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { fetchCoin, toCoinRecord } from "@/lib/pumpfun";
 import { rankFor } from "@/lib/ingest";
@@ -178,11 +177,9 @@ export async function POST(req: NextRequest) {
         launchedAt: coin.launchedAt,
         complete: coin.complete,
       }),
-      // Paid to the trader's *stated* payout address, which is the connected
-      // wallet unless they have set a different one. No wallet means no creator
-      // payout, and the 1% creator leg is not charged at all — the buyer pays
-      // only the 2% app fee.
-      creatorWallet: payoutAddress(trader),
+      // No wallet means no creator payout, and the 1% creator leg is not
+      // charged at all — the buyer pays only the 2% app fee.
+      creatorWallet: trader.walletAddress,
       uploadedById: trader.id,
     },
   });

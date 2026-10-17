@@ -4,7 +4,6 @@ import { z } from "zod";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
 import { requireTrader } from "@/lib/auth";
-import { payoutAddress } from "@/lib/session";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 import { rankFor } from "@/lib/ingest";
@@ -207,7 +206,7 @@ export async function POST(req: NextRequest) {
       caption: parsed.caption ?? null,
       author: publicAuthor(trader),
       rank: rankFor({ marketCapSol: 0, launchedAt: coin.launchedAt, complete: false }),
-      creatorWallet: payoutAddress(trader),
+      creatorWallet: trader.walletAddress,
       uploadedById: trader.id,
     },
   });

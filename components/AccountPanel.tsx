@@ -3,11 +3,15 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAddFunds, usePrivy } from "@privy-io/react-auth";
+import {
+  useExportWallet,
+  useSignAndSendTransaction,
+  useWallets,
+} from "@privy-io/react-auth/solana";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { getBase58Decoder } from "@solana/kit";
 import { QRCodeSVG } from "qrcode.react";
-import { signSiwsChallenge } from "@/lib/siws-client";
-import { useAuth } from "./AuthBridge";
 import { useTrader } from "./TraderProvider";
 import { CheckIcon, ExternalIcon } from "./Icons";
 import { fmtUsd, shortAddr } from "@/lib/format";
@@ -33,6 +37,9 @@ const EXPLORER = "https://explorer.solana.com";
  */
 const money = (n: number | null) => (n == null ? "—" : n === 0 ? "$0.00" : fmtUsd(n));
 
+/** Solana mainnet genesis hash — the CAIP-2 chain id Privy's funding flow wants. */
+const SOLANA_MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
 type View = AccountView;
 
 function Row({
@@ -55,10 +62,12 @@ function Row({
 }
 
 export function AccountPanel() {
-  const { getToken } = useAuth();
+  const { user, logout, getAccessToken } = usePrivy();
   const router = useRouter();
-  const { publicKey, sendTransaction, signMessage, disconnect, wallet } = useWallet();
-  const { connection } = useConnection();
+  const { wallets } = useWallets();
+  const { signAndSendTransaction } = useSignAndSendTransaction();
+  const { exportWallet } = useExportWallet();
+  const { addFunds } = useAddFunds();
   const { trader, account, refresh, toast, solUsd } = useTrader();
 
   // Which panel is showing lives in lib/account-view.ts, so the header's
@@ -75,7 +84,8 @@ export function AccountPanel() {
   /** Own sign-out confirmation. Privy's own modal is unreliable on small screens. */
   const [confirmLogout, setConfirmLogout] = useState(false);
 
-  const address = publicKey?.toBase58() ?? trader?.walletAddress ?? null;
+  const wallet = wallets[0] ?? null;
+  const address = wallet?.address ?? trader?.walletAddress ?? null;
 
   const loadBalance = useCallback(async () => {
     if (!address) return;
@@ -111,12 +121,12 @@ export function AccountPanel() {
   }, []);
 
   const doWithdraw = useCallback(async () => {
-    if (!address) return;
+    if (!wallet || !address) return;
     setBusy(true);
     setLastSig(null);
     try {
-      const accessToken = await getToken();
-      if (!accessToken) throw new Error("connect your wallet first");
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error("session expired — log in again");
 
       // Ask the server to validate the transfer and hand back a blockhash.
       const prep = await fetch("/api/wallet/withdraw", {
@@ -130,8 +140,8 @@ export function AccountPanel() {
       const p = await prep.json();
       if (!prep.ok) throw new Error(p.detail || p.error || "withdrawal rejected");
 
-      // Build locally and let the wallet sign it — the key never leaves the
-      // extension, and the app never sees it.
+      // Build locally. The private key never leaves Privy's iframe: we hand
+      // over an unsigned transaction and receive back a signature.
       const from = new PublicKey(p.from);
       const tx = new Transaction().add(
         SystemProgram.transfer({
@@ -143,7 +153,14 @@ export function AccountPanel() {
       tx.feePayer = from;
       tx.recentBlockhash = p.blockhash;
 
-      const sig = await sendTransaction(tx, connection);
+      const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+      const { signature } = await signAndSendTransaction({
+        transaction: new Uint8Array(serialized),
+        wallet,
+        chain: "solana:mainnet",
+      });
+
+      const sig = getBase58Decoder().decode(signature);
       setLastSig(sig);
       setDest("");
       setAmount("");
@@ -154,54 +171,48 @@ export function AccountPanel() {
     } finally {
       setBusy(false);
     }
-  }, [address, getToken, dest, amount, sendTransaction, connection, toast, loadBalance]);
+  }, [wallet, address, getAccessToken, dest, amount, signAndSendTransaction, toast, loadBalance]);
 
-  /**
-   * Point creator fees at the connected wallet, proven by a signature.
-   *
-   * Fees are paid to whatever `creatorWallet` a clip froze at upload, and a
-   * creator can now swap wallets — so this re-points the trader AND their
-   * existing clips at the wallet they are actually using.
-   */
-  const doSetPayout = useCallback(async () => {
-    if (!publicKey || !signMessage) return;
+  const doTopUp = useCallback(async () => {
+    if (!address) return;
     setBusy(true);
     try {
-      const walletAddr = publicKey.toBase58();
-      const nonceRes = await fetch(
-        `/api/auth/siws/nonce?wallet=${encodeURIComponent(walletAddr)}&purpose=payout`,
-        { cache: "no-store" },
-      );
-      if (!nonceRes.ok) throw new Error("could not start");
-      const { message } = (await nonceRes.json()) as { message: string };
-
-      const sigBytes = await signSiwsChallenge({ message, walletName: wallet?.adapter.name, signMessage });
-      const signature = btoa(String.fromCharCode(...sigBytes));
-
-      const r = await fetch("/api/account/payout", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${walletAddr}`,
-        },
-        body: JSON.stringify({ wallet: walletAddr, message, signature }),
+      await addFunds({
+        destination: { address, chain: SOLANA_MAINNET_CAIP2, asset: "native" },
+        fiat: { defaultAmount: "50" },
+        crypto: {},
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.detail || j.error || "could not update payout");
-      toast("Payout wallet updated");
-      await refresh();
+      toast("Funding started");
     } catch (e) {
-      toast((e as Error).message || "Payout update failed", "bad");
+      const msg = (e as Error).message || "";
+      toast(
+        /not enabled|unsupported|invalid/i.test(msg)
+          ? "Card top-up isn't enabled on this app yet — use Receive instead"
+          : msg || "Top-up unavailable",
+        "bad",
+      );
     } finally {
       setBusy(false);
     }
-  }, [publicKey, signMessage, wallet, refresh, toast]);
+  }, [address, addFunds, toast]);
+
+  const doExport = useCallback(async () => {
+    if (!address) return;
+    setBusy(true);
+    try {
+      await exportWallet({ address });
+    } catch (e) {
+      toast((e as Error).message || "Export unavailable", "bad");
+    } finally {
+      setBusy(false);
+    }
+  }, [address, exportWallet, toast]);
 
   const doLogout = useCallback(async () => {
     setBusy(true);
     try {
       await fetch("/api/auth/session", { method: "DELETE" });
-      await disconnect();
+      await logout();
       await refresh();
       // The account route is useless without a session, so go back to the feed.
       router.push("/");
@@ -211,7 +222,7 @@ export function AccountPanel() {
     } finally {
       setBusy(false);
     }
-  }, [disconnect, refresh, router, toast]);
+  }, [logout, refresh, router, toast]);
 
   const sol = balance ?? 0;
   const maxWithdraw = balance != null ? Math.max(0, (balance - BASE_FEE_LAMPORTS) / LAMPORTS) : 0;
@@ -220,9 +231,7 @@ export function AccountPanel() {
       ? "Google"
       : trader?.loginMethod === "TWITTER"
         ? "X (Twitter)"
-        : trader?.loginMethod === "WALLET"
-          ? "Solana wallet"
-          : "Email";
+        : "Email";
 
   return (
     <>
@@ -244,7 +253,7 @@ export function AccountPanel() {
                   ? "Receive"
                   : view === "withdraw"
                     ? "Withdraw"
-                    : "Payout wallet"}
+                    : "Export key"}
             </h2>
           </div>
         </div>
@@ -328,16 +337,16 @@ export function AccountPanel() {
             </div>
 
             <div className="mt-3 rounded-xl border border-line bg-panel2 px-3">
-              <Row label="Wallet" value={address ? shortAddr(address, 6) : "anon"} mono />
+              <Row label="Account" value={trader?.email ?? "anon"} />
               <div className="border-t border-line" />
-              <Row label="Connected via" value={loginLabel} />
+              <Row label="Signed in via" value={loginLabel} />
             </div>
 
             <button
-              onClick={() => setView("payout")}
+              onClick={() => setView("export")}
               className="mt-3 w-full rounded-xl border border-line py-2 text-[11px] font-semibold text-muted hover:text-ink"
             >
-              Payout wallet
+              Export private key
             </button>
 
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
@@ -411,10 +420,11 @@ export function AccountPanel() {
             </p>
 
             <button
-              onClick={() => setView("receive")}
-              className="mt-3 w-full rounded-xl border border-line py-2 text-[11px] font-semibold text-muted hover:text-ink"
+              onClick={() => void doTopUp()}
+              disabled={busy}
+              className="mt-3 w-full rounded-xl border border-line py-2 text-[11px] font-semibold text-muted hover:text-ink disabled:opacity-50"
             >
-              ← Back
+              {busy ? "Opening…" : "Or buy with a card"}
             </button>
           </>
         )}
@@ -497,37 +507,42 @@ export function AccountPanel() {
             )}
 
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
-              You&apos;ll approve the transfer in your wallet. Check the address carefully —
+              You&apos;ll approve the transfer in the Privy prompt. Check the address carefully —
               Solana transfers are irreversible.
             </p>
           </>
         )}
 
-        {/* ---------- payout wallet ---------- */}
-        {view === "payout" && address && (
+        {/* ---------- export ---------- */}
+        {view === "export" && address && (
           <>
-            <p className="text-[11px] leading-relaxed text-muted">
-              Creator fees — the 1% paid on every buy made through your clip — go to{" "}
-              <span className="font-mono text-ink">{shortAddr(address, 6)}</span>. If you move
-              to a new wallet, set it here so your existing clips pay there too.
+            <div className="rounded-xl border border-down/40 bg-down/10 p-3 text-[11px] leading-relaxed text-ink">
+              <strong className="text-down">Your private key is the wallet.</strong> Anyone who
+              sees it can take every asset in it, forever. Never share it, never paste it into a
+              site, and never send it over chat.
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-muted">
+              Privy will open a secure window to reveal the key. It renders on a separate
+              domain from Pemp, so this app can never read it.
             </p>
             <button
-              onClick={() => void doSetPayout()}
+              onClick={() => void doExport()}
               disabled={busy}
-              className="mt-4 w-full rounded-xl border border-line bg-panel2 py-3 text-[12px] font-bold hover:border-accent disabled:opacity-50"
+              className="mt-4 w-full rounded-xl border border-line bg-panel2 py-3 text-[12px] font-bold hover:border-down disabled:opacity-50"
             >
-              {busy ? "Confirming…" : "Use connected wallet"}
+              {busy ? "Opening…" : "Reveal private key"}
             </button>
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
-              Requires a signature from the wallet — it proves you control the address fees
-              would be sent to. It costs nothing and sends no transaction.
+              Tip: most people never need to export. The wallet can send, receive and be
+              recovered without it.
             </p>
           </>
         )}
 
         {!address && (
           <div className="py-8 text-center text-[12px] text-muted">
-            Connect a Solana wallet to see it here.
+            No wallet on this account yet.
+            {user ? " It may still be being created — reopen in a moment." : ""}
           </div>
         )}
       </section>

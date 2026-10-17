@@ -1,69 +1,72 @@
 "use client";
 
 import { createContext, useContext, useMemo } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { usePrivy } from "@privy-io/react-auth";
+import { privyEnabled } from "./PrivyRoot";
 import { useIsDesktop } from "@/lib/use-desktop";
 import { showGate } from "@/lib/mobile-gate";
 
 /**
- * Auth, expressed against a connected wallet.
+ * Auth, available whether or not Privy is configured.
  *
- * Same interface every screen already consumes, so nothing downstream had to
- * change when Privy was removed — only the implementation behind it. Login is now
- * "connect a wallet"; a connected wallet is the authenticated state.
+ * `usePrivy()` throws when there is no `PrivyProvider` above it, and hooks
+ * cannot be called conditionally — so the enabled and disabled cases are two
+ * different components and this picks one. That keeps every consumer free to
+ * call `useAuth()` at the top level of its own component without a guard.
  *
- * The display half of the gate is the same as before: a desktop visitor reaching
- * for the wallet — from a buy button, a like, a comment — gets the phone screen
- * rather than a wallet modal for an app they cannot run here. This is the single
- * point every call site funnels through, which is why the check lives here.
+ * When Privy is unconfigured the feed still works fully; liking, commenting and
+ * uploading simply report that login is unavailable.
  */
 export type Auth = {
   enabled: boolean;
   authenticated: boolean;
   login: () => void;
-  /**
-   * A bearer marker for our own API, or null when signed out.
-   *
-   * Not a token: the session is the httpOnly cookie minted after SIWS. This
-   * returns the connected wallet address, which the server checks against the
-   * wallet the session was issued for — so a request carrying a mismatched wallet
-   * is refused even if the cookie leaked.
-   */
+  /** Bearer token for our own API, or null when signed out. */
   getToken: () => Promise<string | null>;
 };
 
-const AuthCtx = createContext<Auth>({
-  enabled: true,
+const Disabled: Auth = {
+  enabled: false,
   authenticated: false,
   login: () => {},
   getToken: async () => null,
-});
+};
+
+const AuthCtx = createContext<Auth>(Disabled);
 
 export function useAuth(): Auth {
   return useContext(AuthCtx);
 }
 
-export function AuthBridge({ children }: { children: React.ReactNode }) {
-  const { connected, publicKey } = useWallet();
-  const { setVisible } = useWalletModal();
+function EnabledAuth({ children }: { children: React.ReactNode }) {
+  const { authenticated, login, getAccessToken, ready } = usePrivy();
   const desktop = useIsDesktop();
 
   const value = useMemo<Auth>(
     () => ({
       enabled: true,
-      authenticated: connected && Boolean(publicKey),
+      authenticated: ready && authenticated,
+      // Login is the other half of the gate: a desktop visitor reaching for the
+      // wallet — from a buy button, a like, a comment, or anywhere else — gets
+      // the mobile screen rather than a Privy modal for an app they cannot use
+      // here. This is the single point every call site funnels through, which is
+      // why the check lives here and not at each button.
       login: () => {
         if (desktop) {
           showGate();
           return;
         }
-        setVisible(true);
+        void login();
       },
-      getToken: async () => (publicKey ? publicKey.toBase58() : null),
+      getToken: async () => (await getAccessToken()) ?? null,
     }),
-    [connected, publicKey, desktop, setVisible],
+    [ready, authenticated, login, getAccessToken, desktop],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
+}
+
+export function AuthBridge({ children }: { children: React.ReactNode }) {
+  if (!privyEnabled) return <AuthCtx.Provider value={Disabled}>{children}</AuthCtx.Provider>;
+  return <EnabledAuth>{children}</EnabledAuth>;
 }

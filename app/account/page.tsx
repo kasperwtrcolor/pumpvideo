@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { privyEnabled } from "@/components/PrivyRoot";
 import { useAuth } from "@/components/AuthBridge";
 import { AccountPanel } from "@/components/AccountPanel";
 import { ProfileSettings } from "@/components/ProfileSettings";
@@ -16,10 +17,22 @@ import { LEGAL_LINKS } from "@/lib/legal";
  * the separate /portfolio tab: the nav is one button lighter and there is no
  * overlay to get clipped on a small screen.
  *
- * Split into an inner component so the wallet hook is only reached once the
- * wallet provider is mounted above it.
+ * Split into a guard + an inner component because `usePrivy()` (used deeper in
+ * AccountPanel) throws without a provider, and hooks cannot be called
+ * conditionally.
  */
 export default function AccountPage() {
+  if (!privyEnabled) {
+    return (
+      <Shell>
+        <h1 className="text-2xl font-black tracking-tight">Account</h1>
+        <p className="mt-3 text-xs leading-relaxed text-muted">
+          Log in isn&apos;t configured on this deployment, so there is no wallet to manage
+          here yet. The feed is fully browsable.
+        </p>
+      </Shell>
+    );
+  }
   return <AccountInner />;
 }
 
@@ -31,16 +44,16 @@ function AccountInner() {
       <Shell>
         <h1 className="text-2xl font-black tracking-tight">Account</h1>
         <div className="mt-4 rounded-2xl border border-line bg-panel p-5 text-center">
-          <h2 className="text-base font-bold tracking-tight">Connect to trade</h2>
+          <h2 className="text-base font-bold tracking-tight">Sign in to trade</h2>
           <p className="mt-2 text-[12px] leading-relaxed text-muted">
-            Connect your own Solana wallet (Phantom, Solflare). It stays yours — Pemp never holds
-            your keys, and no deposit is needed to look around.
+            Use email, Google or X. A self-custodial Solana wallet is created for you — no
+            extension, no seed phrase, no deposit required to look around.
           </p>
           <button
             onClick={() => login()}
             className="burn-gradient mt-4 w-full rounded-xl py-3 text-sm font-black tracking-wide text-black active:scale-[0.99]"
           >
-            Connect wallet
+            Log in
           </button>
         </div>
         <p className="mt-3 text-[10px] leading-relaxed text-muted">

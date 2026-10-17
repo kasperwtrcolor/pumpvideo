@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthBridge";
+import { privyEnabled } from "./PrivyRoot";
 import { setAccountView } from "@/lib/account-view";
 
 /**
@@ -15,17 +16,22 @@ import { setAccountView } from "@/lib/account-view";
  *
  * Signed in, it opens the Receive panel: the QR code and the copy-address
  * button. That is what "deposit" means to anyone holding a wallet — they want
- * the address to send to. (There is no card top-up: the user brings their own
- * wallet, so funding it is their wallet's job, not ours.)
+ * the address to send to, not a card form. The card flow still exists, one tap
+ * further in, as "Or buy with a card" on that same panel.
+ *
+ * Split into a guard + an inner component because `usePrivy()` throws without a
+ * provider, and hooks cannot be called conditionally.
  */
 export function DepositButton({ overlay }: { overlay?: boolean }) {
+  if (!privyEnabled) return null;
   return <DepositButtonInner overlay={overlay} />;
 }
 
 function DepositButtonInner({ overlay }: { overlay?: boolean }) {
-  // Through `useAuth`, so a desktop click raises the mobile gate instead of a
-  // wallet modal. Every sign-in affordance has to funnel through the one place
-  // that knows about desktop.
+  // Through `useAuth`, not `usePrivy`, so a desktop click raises the mobile gate
+  // instead of a login modal. Every sign-in affordance has to funnel through the
+  // one place that knows about desktop; a direct `usePrivy().login()` here would
+  // quietly open a modal for an app that cannot run on this machine.
   const { authenticated, login } = useAuth();
   const router = useRouter();
 
