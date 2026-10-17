@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
       clipId: n.clipId,
       clipThumb: n.clip?.thumbUrl ?? n.clip?.coin?.imageUrl ?? null,
       coinMint: n.coinMint,
+      amountSol: n.amountSol,
     })),
   });
 }

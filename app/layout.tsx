@@ -6,6 +6,7 @@ import { TraderProvider } from "@/components/TraderProvider";
 import { PrivyRoot } from "@/components/PrivyRoot";
 import { AuthBridge } from "@/components/AuthBridge";
 import { PrivySessionSync } from "@/components/PrivySessionSync";
+import { PayoutPop } from "@/components/PayoutPop";
 import { solUsd } from "@/lib/sol-price";
 
 export const metadata: Metadata = {
@@ -64,6 +65,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <InstallBridge />
             <TraderProvider initialSolUsd={usd}>
               <PrivySessionSync />
+              {/* Global, so a payout is announced in whichever chrome the
+                  viewport chose. Renders nothing until there is one to show. */}
+              <PayoutPop />
               {/* The frame is chosen by viewport in Shell: the phone chrome on a
                   narrow screen, the wide four-region shell on a desktop. `relative`
                   anchors AppHeader's overlay mode on the feed, where it takes no

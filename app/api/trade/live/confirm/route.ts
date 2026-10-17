@@ -163,10 +163,13 @@ export async function POST(req: NextRequest) {
   // We appended the fee as plain SystemProgram transfers, so they are the last
   // instructions and their destinations are static keys. Summing what actually
   // moved to the vault and to the creator is a fact; the request body is not.
-  const creatorWallet = clipId
-    ? (await prisma.clip.findUnique({ where: { id: clipId }, select: { creatorWallet: true } }))
-        ?.creatorWallet ?? null
+  const clip = clipId
+    ? await prisma.clip.findUnique({
+        where: { id: clipId },
+        select: { creatorWallet: true, uploadedById: true },
+      })
     : null;
+  const creatorWallet = clip?.creatorWallet ?? null;
 
   const staticKeys = keys;
   const sysProgram = SystemProgram.programId.toBase58();
@@ -214,6 +217,44 @@ export async function POST(req: NextRequest) {
       txSig: signature,
     },
   });
+
+  // ---- the creator's receipt --------------------------------------------
+  //
+  // A buy through a clip pays that clip's creator 1% on-chain, inside the
+  // buyer's own swap, so it has already landed in their wallet by the time we
+  // get here. This row is what tells them it happened: the inbox entry, and the
+  // payout pop the app raises when it arrives.
+  //
+  // The earner is resolved *by wallet* — the same way /api/account and the
+  // leaderboard sum creator rewards — so the receipt and those totals can never
+  // disagree about who was paid. Only when the wallet is not linked to an
+  // account we know do we fall back to whoever uploaded the clip.
+  //
+  // Wrapped: a receipt must never fail the trade it describes.
+  if (side === "BUY" && creatorFeeSol > 0 && creatorWallet && creatorWallet !== TREASURY_VAULT) {
+    try {
+      const byWallet = await prisma.trader.findUnique({
+        where: { walletAddress: creatorWallet },
+        select: { id: true },
+      });
+      const earnerId = byWallet?.id ?? clip?.uploadedById ?? null;
+      // Buying the coin of your own clip is not news to you.
+      if (earnerId && earnerId !== trader.id) {
+        await prisma.notification.create({
+          data: {
+            traderId: earnerId,
+            type: "EARN",
+            actorId: trader.id,
+            clipId: clipId ?? null,
+            coinMint: mint,
+            amountSol: creatorFeeSol,
+          },
+        });
+      }
+    } catch (e) {
+      console.error("[live-confirm:earn-notice]", e);
+    }
+  }
 
   // ---- keep the position mirror in step with the wallet -------------------
   //

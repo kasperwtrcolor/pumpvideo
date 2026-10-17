@@ -128,7 +128,7 @@ export type ProfileResponse = { user: UserCardDTO; clips: FeedItemDTO[]; total: 
  */
 export type NotificationDTO = {
   id: string;
-  type: "FOLLOW" | "UPLOAD" | "TOKEN_CLIP";
+  type: "FOLLOW" | "UPLOAD" | "TOKEN_CLIP" | "EARN";
   read: boolean;
   at: string;
   actor: { slug: string; name: string; avatarUrl: string | null } | null;
@@ -137,6 +137,8 @@ export type NotificationDTO = {
   clipId: string | null;
   clipThumb: string | null;
   coinMint: string | null;
+  /** SOL paid to this creator by an EARN row. Null for every other type. */
+  amountSol: number | null;
 };
 
 export type NotificationsResponse = { unread: number; notifications: NotificationDTO[] };

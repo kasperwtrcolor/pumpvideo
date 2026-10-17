@@ -507,6 +507,132 @@ a[class*="bg-white"] {
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+/*
+ * The payout pop — a creator's cut landing.
+ *
+ * This is the one moment in the app that is *money arriving unbidden*, so it is
+ * allowed the louder treatment the rest of the motion budget deliberately
+ * avoids: it drops in, blooms a halo, pops its coin, rains a few coins down the
+ * card, and drains a timed bar. It fires once per payout and never on render —
+ * `PayoutPop` keys the card on the notification id, so a re-render or a poll
+ * that returns the same row replays nothing.
+ *
+ * `prefers-reduced-motion` removes all of it (see the switch below): the card
+ * simply appears with the final amount already in place.
+ */
+@keyframes payout-drop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -120%, 0) scale(0.92) rotate(-1.5deg);
+  }
+  62% {
+    opacity: 1;
+    transform: translate3d(0, 6px, 0) scale(1.015) rotate(0.4deg);
+  }
+  84% {
+    transform: translate3d(0, -2px, 0) scale(0.998) rotate(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+}
+.payout-drop {
+  animation: payout-drop 620ms var(--ease-decelerate) both;
+}
+
+/** The halo behind the coin, expanding once as the card settles. */
+@keyframes payout-halo {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+.payout-halo {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin-top: -23px;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--color-up) 60%, transparent),
+    transparent 70%
+  );
+  animation: payout-halo 950ms var(--ease-decelerate) forwards;
+}
+
+/** The coin itself, arriving a beat after the card. */
+@keyframes payout-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-14deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.18) rotate(6deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+.payout-pop {
+  animation: payout-pop 620ms 120ms var(--ease-standard) both;
+}
+
+/**
+ * A few coins raining down the card. One keyframe serves all of them: each dot is
+ * rotated to its own angle by the inline `--a`, so the translation that follows
+ * throws it along that angle and the fan comes free.
+ */
+@keyframes payout-particle {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateY(0) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateY(64px) scale(1);
+  }
+}
+.payout-particle {
+  position: absolute;
+  left: 50%;
+  top: 15px;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: var(--color-up);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--color-up) 70%, transparent);
+  animation: payout-particle 1050ms var(--ease-accelerate) both;
+}
+
+/** The bar that drains while the pop is on screen. Duration must match SHOW_MS. */
+@keyframes payout-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.payout-progress {
+  transform-origin: left center;
+  animation: payout-progress 5200ms linear forwards;
+}
+
 /**
  * One switch for all of it.
  *
@@ -530,6 +656,11 @@ a[class*="bg-white"] {
   .clip-enter,
   .clip-bounce,
   .banner-drop,
+  .payout-drop,
+  .payout-halo,
+  .payout-pop,
+  .payout-particle,
+  .payout-progress,
   .skeleton {
     animation: none;
   }
@@ -537,6 +668,11 @@ a[class*="bg-white"] {
   .press:active {
     transition: none;
     transform: none;
+  }
+  /* These two exist only as movement — nothing is left to show once it stops. */
+  .payout-particle,
+  .payout-progress {
+    display: none;
   }
 }
 

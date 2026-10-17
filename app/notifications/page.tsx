@@ -6,7 +6,7 @@ import type { NotificationDTO, NotificationsResponse } from "@/lib/types";
 import { useAuth } from "@/components/AuthBridge";
 import { EmptyState } from "@/components/Mascots";
 import { artUrl } from "@/lib/art-url";
-import { timeAgo } from "@/lib/format";
+import { timeAgo, fmtSol } from "@/lib/format";
 
 /**
  * The inbox.
@@ -111,6 +111,7 @@ export default function NotificationsPage() {
 function NotificationRow({ n }: { n: NotificationDTO }) {
   const thumb = n.clipThumb ?? artUrl(n.coinImage);
   const who = n.actor?.name ?? "someone";
+  const earned = n.type === "EARN" ? (n.amountSol ?? 0) : 0;
 
   const href =
     n.type === "FOLLOW"
@@ -131,6 +132,10 @@ function NotificationRow({ n }: { n: NotificationDTO }) {
         <b className="font-black">{who}</b> posted a new clip
         {n.coinSymbol ? <> · ${n.coinSymbol}</> : null}
       </>
+    ) : n.type === "EARN" ? (
+      <>
+        <b className="font-black">{who}</b> bought ${n.coinSymbol ?? "a token"} through your clip
+      </>
     ) : (
       <>
         New clip on <b className="font-black">${n.coinSymbol ?? "a token"}</b> you follow
@@ -138,7 +143,7 @@ function NotificationRow({ n }: { n: NotificationDTO }) {
     );
 
   return (
-    <li className={n.read ? "" : "bg-accent/5"}>
+    <li className={n.read ? "" : n.type === "EARN" ? "bg-up/5" : "bg-accent/5"}>
       <Link href={href} className="press flex items-center gap-3 px-4 py-3">
         <span className="relative shrink-0">
           {thumb ? (
@@ -150,7 +155,11 @@ function NotificationRow({ n }: { n: NotificationDTO }) {
             </span>
           )}
           {!n.read && (
-            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg bg-accent" />
+            <span
+              className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${
+                n.type === "EARN" ? "bg-up" : "bg-accent"
+              }`}
+            />
           )}
         </span>
 
@@ -159,11 +168,15 @@ function NotificationRow({ n }: { n: NotificationDTO }) {
           <span className="block text-[11px] text-muted">{timeAgo(n.at)}</span>
         </span>
 
-        {n.type !== "FOLLOW" && (
+        {n.type === "EARN" ? (
+          <span className="shrink-0 rounded-full border border-up/40 bg-up/10 px-2.5 py-1 text-[10px] font-black text-up">
+            +{fmtSol(earned, earned < 1 ? 4 : 3)} SOL
+          </span>
+        ) : n.type !== "FOLLOW" ? (
           <span className="shrink-0 rounded-full border border-line bg-panel2 px-2.5 py-1 text-[10px] font-black">
             watch
           </span>
-        )}
+        ) : null}
       </Link>
     </li>
   );

@@ -510,7 +510,7 @@ model Notification {
   traderId String
   trader   Trader  @relation("NotifTo", fields: [traderId], references: [id], onDelete: Cascade)
 
-  /// FOLLOW | UPLOAD | TOKEN_CLIP
+  /// FOLLOW | UPLOAD | TOKEN_CLIP | EARN
   type     String
   actorId  String?
   actor    Trader? @relation("NotifFrom", fields: [actorId], references: [id], onDelete: SetNull)
@@ -521,6 +521,14 @@ model Notification {
 
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  /// The creator's cut, in SOL, when this is an `EARN` row: the 1% leg a buy
+  /// routed through one of their clips. Null for every other type.
+  ///
+  /// Not a balance — the SOL has already landed in their wallet by the time this
+  /// row is written (it settles inside the buyer's swap). This is the receipt:
+  /// what the inbox row shows and what the payout pop counts up to.
+  amountSol Float?
 
   @@index([traderId, createdAt])
   @@index([traderId, read])
