@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CoinDTO } from "@/lib/types";
 import { useTrader } from "./TraderProvider";
 import { CoinAvatar } from "./CoinAvatar";
@@ -10,6 +10,15 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useAuth } from "./AuthBridge";
 import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { getBase58Decoder } from "@solana/kit";
+import { Connection, VersionedTransaction } from "@solana/web3.js";
+import { publicSolanaRpc } from "@/lib/capabilities";
+import {
+  getBuyPresets,
+  resetBuyPresets,
+  serverBuyPresets,
+  setBuyPresets,
+  subscribeBuyPresets,
+} from "@/lib/buy-prefs";
 
 /** What /api/trade/live/prepare hands back for the review step. */
 type FeeReport = {
@@ -38,6 +47,87 @@ function b64ToBytes(b64: string): Uint8Array {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+/**
+ * Fee headroom reserved before a buy is allowed.
+ *
+ * A buy costs `solAmount` plus the in-app fee (2% treasury, +1% creator when the
+ * clip has one), the network fee, and — on a first buy of a token — the ATA rent.
+ * Reserving a flat 3% + a small fixed buffer keeps the button from offering a
+ * trade the wallet cannot actually pay for.
+ */
+const EST_FEE_RATE = 0.03;
+const EST_FIXED_SOL = 0.005;
+
+/** What a buy of `sol` really needs on-chain, incl. fees and rent. */
+function requiredSolForBuy(sol: number): number {
+  return sol * (1 + EST_FEE_RATE) + EST_FIXED_SOL;
+}
+
+/**
+ * Turn a simulation failure into something a trader can act on.
+ *
+ * We simulate before signing precisely so the common failures (no SOL, price
+ * moved, stale quote) surface as plain language here — instead of Privy
+ * answering with its own generic "Something went wrong" screen, which is what
+ * happened before and told the user nothing.
+ */
+function describeSimFailure(err: unknown, logs: string[] | null): string {
+  const text = `${typeof err === "string" ? err : JSON.stringify(err)} ${(logs ?? []).join(" ")}`;
+  if (/insufficient (lamports|funds)|Transfer: insufficient|0x1\b/i.test(text)) {
+    return "Not enough SOL in your wallet for this trade, including fees";
+  }
+  if (/slippage|ExceededSlippage|0x1771|TooLittleSolReceived/i.test(text)) {
+    return "Price moved too far — refresh the quote and try again";
+  }
+  if (/blockhash|BlockhashNotFound|expired/i.test(text)) {
+    return "This quote expired — tap the buy button again for a fresh one";
+  }
+  return "That swap would fail on-chain — try a smaller amount or refresh the quote";
+}
+
+/** True when the failure means the quote's blockhash is simply stale. */
+function isStaleQuote(err: unknown, logs: string[] | null): boolean {
+  const text = `${typeof err === "string" ? err : JSON.stringify(err)} ${(logs ?? []).join(" ")}`;
+  return /blockhash|BlockhashNotFound|expired/i.test(text);
+}
+
+/**
+ * Privy wraps signing errors with a generic top-level message; the real reason
+ * lives on `.cause` / `.details`. Dig it out, and map the common ones.
+ */
+function describeSignError(e: unknown): string {
+  const anyE = e as {
+    message?: string;
+    details?: string;
+    cause?: { message?: string };
+    error?: { message?: string };
+  };
+  const candidates = [
+    anyE?.cause?.message,
+    anyE?.error?.message,
+    anyE?.details,
+    anyE?.message,
+  ].filter((m): m is string => typeof m === "string" && m.trim().length > 0);
+
+  // Drop the useless generic one if anything more specific exists.
+  const specific = candidates.find((m) => !/^something went wrong\.?$/i.test(m.trim()));
+  const raw = specific ?? candidates[0] ?? "transaction failed";
+
+  if (/user (rejected|denied|cancell?ed)|rejected the request|cancell?ed by user/i.test(raw)) {
+    return "You cancelled the signature";
+  }
+  if (/insufficient (lamports|funds)|0x1\b/i.test(raw)) {
+    return "Not enough SOL in your wallet for this trade, including fees";
+  }
+  if (/slippage|ExceededSlippage|0x1771/i.test(raw)) {
+    return "Price moved too far — refresh the quote and try again";
+  }
+  if (/network|fetch|timeout|rpc/i.test(raw)) {
+    return "Network hiccup sending the transaction — try again";
+  }
+  return raw;
 }
 
 /**
@@ -86,23 +176,49 @@ export function BuySheet({
   const [liveSol, setLiveSol] = useState<number | null>(null);
   const [liveHeld, setLiveHeld] = useState<number | null>(null);
 
+  // The four quick-pick buy amounts belong to the viewer (lib/buy-prefs.ts), so
+  // a trader who always buys the same size sets it once instead of retyping.
+  const presets = useSyncExternalStore(subscribeBuyPresets, getBuyPresets, serverBuyPresets);
+  const [editingPresets, setEditingPresets] = useState(false);
+  const [draft, setDraft] = useState<string[]>(["", "", "", ""]);
+  const touchedAmount = useRef(false);
+
+  // Seed the buy amount from the viewer's second preset once, unless they have
+  // already typed a figure or tapped a preset in this session.
+  useEffect(() => {
+    if (touchedAmount.current) return;
+    const seed = presets[1] ?? presets[0];
+    if (seed) setSolAmount(seed);
+  }, [presets]);
+
+  const chooseAmount = useCallback((n: number) => {
+    touchedAmount.current = true;
+    setSolAmount(n);
+  }, []);
+
   const wallet = wallets[0] ?? null;
   const canTrade = trader?.canTrade !== false;
 
   // Real balances only. These are read from chain, never from a local estimate.
+  const loadBalances = useCallback(async () => {
+    if (!wallet?.address) return;
+    try {
+      const r = await fetch(
+        `/api/wallet/balance?address=${encodeURIComponent(wallet.address)}&mint=${encodeURIComponent(coin.mint)}`,
+        { cache: "no-store" },
+      );
+      const j = await r.json();
+      if (Number.isFinite(j.sol)) setLiveSol(j.sol);
+      if (Number.isFinite(j.tokens)) setLiveHeld(j.tokens);
+    } catch {
+      /* RPC busy — keep the last known values rather than blanking the sheet */
+    }
+  }, [wallet?.address, coin.mint]);
+
   useEffect(() => {
-    if (!open || !wallet?.address) return;
-    fetch(
-      `/api/wallet/balance?address=${encodeURIComponent(wallet.address)}&mint=${encodeURIComponent(coin.mint)}`,
-      { cache: "no-store" },
-    )
-      .then((r) => r.json())
-      .then((j) => {
-        if (Number.isFinite(j.sol)) setLiveSol(j.sol);
-        if (Number.isFinite(j.tokens)) setLiveHeld(j.tokens);
-      })
-      .catch(() => {});
-  }, [open, wallet?.address, coin.mint, result]);
+    if (!open) return;
+    void loadBalances();
+  }, [open, loadBalances, result]);
 
   const close = useCallback(() => {
     setLiveQuote(null);
@@ -153,10 +269,42 @@ export function BuySheet({
       const token = await getAccessToken();
       if (!token) throw new Error("session expired — log in again");
 
+      // Simulate the exact bytes before asking the wallet to sign them.
+      //
+      // This is the fix for the old dead end: a swap that was going to fail
+      // (empty wallet, price moved, dead blockhash) used to be handed straight
+      // to Privy, which answered with a generic "Something went wrong" screen.
+      // Simulating first lets us find out *why* and say it in plain words.
+      let tx: VersionedTransaction;
+      try {
+        tx = VersionedTransaction.deserialize(b64ToBytes(liveQuote.transaction));
+      } catch {
+        throw new Error("Could not read the swap this app built — try again");
+      }
+
+      let simErr: unknown = null;
+      let simLogs: string[] | null = null;
+      try {
+        const conn = new Connection(publicSolanaRpc(), "confirmed");
+        const sim = await conn.simulateTransaction(tx, {
+          sigVerify: false,
+          replaceRecentBlockhash: false,
+        });
+        simErr = sim.value.err;
+        simLogs = sim.value.logs ?? null;
+      } catch {
+        // RPC unreachable — that is not a verdict on the trade, so let the
+        // wallet attempt it rather than block the user on our own outage.
+      }
+      if (simErr) {
+        if (isStaleQuote(simErr, simLogs)) setLiveQuote(null);
+        throw new Error(describeSimFailure(simErr, simLogs));
+      }
+
       // The private key never leaves Privy: we hand over transaction bytes and
       // get back a signature.
       const sigBytes = await signAndSendTransaction({
-        transaction: b64ToBytes(liveQuote.transaction),
+        transaction: new Uint8Array(b64ToBytes(liveQuote.transaction)),
         wallet,
         chain: "solana:mainnet",
       });
@@ -181,9 +329,12 @@ export function BuySheet({
       void refresh();
       setTimeout(close, 900);
     } catch (e) {
-      const m = (e as Error).message || "transaction failed";
+      const m = describeSignError(e);
       setResult(m);
       toast(m, "bad");
+      // A failed send usually means the balance moved under us — re-read it so
+      // the sheet stops offering a trade this wallet cannot cover.
+      void loadBalances();
     } finally {
       setBusy(false);
     }
@@ -200,14 +351,21 @@ export function BuySheet({
     refresh,
     close,
     toast,
+    loadBalances,
   ]);
 
   if (!open) return null;
 
   const heldForSell = liveHeld ?? 0;
+  // What the trade really needs on-chain, fees included.
+  const requiredSol = side === "BUY" ? requiredSolForBuy(solAmount) : 0;
+  // Wallet cannot cover the trade plus its fees — block it here rather than let
+  // it die inside the wallet's signing screen with a generic error.
+  const shortfall = side === "BUY" && liveSol != null && requiredSol > liveSol;
   const disabled =
     busy ||
     !canTrade ||
+    shortfall ||
     (side === "BUY" ? solAmount <= 0 : heldForSell <= 0 || fraction <= 0);
   const reviewing = liveQuote !== null;
   const fees = liveQuote?.fees;
@@ -364,9 +522,15 @@ export function BuySheet({
               </div>
             )}
 
+            {shortfall && liveSol != null && (
+              <p className="mt-3 rounded-lg border border-down/40 bg-down/10 px-3 py-2 text-[11px] text-down">
+                Your balance is now below this trade — go back and lower the amount.
+              </p>
+            )}
+
             <button
               onClick={() => void signAndConfirm()}
-              disabled={busy}
+              disabled={busy || shortfall}
               className="mt-4 w-full rounded-xl burn-gradient py-3.5 text-sm font-black tracking-wide text-black disabled:opacity-50"
             >
               {busy ? "signing…" : "Confirm & sign"}
@@ -390,36 +554,114 @@ export function BuySheet({
           <>
             {side === "BUY" ? (
               <div className="px-4 pt-4">
-                <div className="grid grid-cols-4 gap-2">
-                  {coin.buyPresetsSol.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setSolAmount(p)}
-                      className={`rounded-xl border py-2.5 text-xs font-bold tabular-nums transition ${
-                        solAmount === p
-                          ? "border-accent bg-accent/15 text-accent"
-                          : "border-line bg-panel2 text-muted hover:text-ink"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    Quick buy amounts
+                  </span>
+                  <button
+                    onClick={() => {
+                      setDraft(presets.map((p) => String(p)));
+                      setEditingPresets((v) => !v);
+                    }}
+                    className="text-[10px] font-semibold text-muted hover:text-ink"
+                  >
+                    {editingPresets ? "Cancel" : "Edit"}
+                  </button>
                 </div>
+
+                {!editingPresets && (
+                  <div className="grid grid-cols-4 gap-2">
+                    {presets.map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => chooseAmount(p)}
+                        className={`rounded-xl border py-2.5 text-xs font-bold tabular-nums transition ${
+                          solAmount === p
+                            ? "border-accent bg-accent/15 text-accent"
+                            : "border-line bg-panel2 text-muted hover:text-ink"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {editingPresets && (
+                  <div className="rounded-xl border border-line bg-panel2 p-3">
+                    <p className="text-[11px] leading-relaxed text-muted">
+                      Set the four amounts you trade most. Saved on this device.
+                    </p>
+                    <div className="mt-2 grid grid-cols-4 gap-2">
+                      {draft.map((v, i) => (
+                        <input
+                          key={i}
+                          value={v}
+                          onChange={(e) =>
+                            setDraft((d) => d.map((x, j) => (j === i ? e.target.value : x)))
+                          }
+                          inputMode="decimal"
+                          aria-label={`Buy amount ${i + 1}`}
+                          className="w-full rounded-lg border border-line bg-panel px-2 py-2 text-center text-xs font-bold tabular-nums outline-none focus:border-accent"
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => {
+                          const nums = draft.map((x) => Number(x));
+                          if (nums.some((n) => !Number.isFinite(n) || n <= 0)) {
+                            toast("Enter four amounts above 0", "bad");
+                            return;
+                          }
+                          const clean = setBuyPresets(nums);
+                          setDraft(clean.map((p) => String(p)));
+                          setEditingPresets(false);
+                          toast("Buy amounts saved");
+                        }}
+                        className="flex-1 rounded-lg burn-gradient py-2 text-[11px] font-black text-black"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          const def = resetBuyPresets();
+                          setDraft(def.map((p) => String(p)));
+                          toast("Buy amounts reset");
+                        }}
+                        className="rounded-lg border border-line px-3 py-2 text-[11px] font-semibold text-muted hover:text-ink"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-panel2 px-3 py-2">
                   <input
                     type="number"
                     min={0}
                     step={0.01}
                     value={solAmount}
-                    onChange={(e) => setSolAmount(Number(e.target.value))}
+                    onChange={(e) => chooseAmount(Number(e.target.value))}
                     className="w-full bg-transparent text-lg font-bold tabular-nums outline-none"
                   />
                   <span className="text-xs font-semibold text-muted">SOL</span>
                 </div>
-                {liveSol != null && solAmount > liveSol && (
-                  <p className="mt-2 text-[11px] text-down">
-                    Wallet holds {fmtSol(liveSol)} SOL — not enough for this trade.
-                  </p>
+
+                {shortfall && liveSol != null && (
+                  <div className="mt-2 rounded-lg border border-down/40 bg-down/10 px-3 py-2">
+                    <p className="text-[11px] text-down">
+                      This buy needs ≈{fmtSol(requiredSol, requiredSol < 1 ? 4 : 3)} SOL with fees —
+                      wallet holds {fmtSol(liveSol, liveSol < 1 ? 4 : 3)} SOL.
+                    </p>
+                    <a
+                      href="/account"
+                      className="mt-1 inline-block text-[11px] font-bold text-down underline"
+                    >
+                      Top up your wallet →
+                    </a>
+                  </div>
                 )}
               </div>
             ) : (
