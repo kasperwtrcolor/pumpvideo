@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import type { AccountResponse } from "@/lib/types";
 import { useTrader } from "@/components/TraderProvider";
-import { fmtSol, fmtUsd, sym } from "@/lib/format";
+import { fmtSol, fmtUsd, sym, timeAgo } from "@/lib/format";
+import { useTick } from "@/lib/use-tick";
 
 /**
  * Creator rewards, on the account page.
@@ -13,6 +15,22 @@ import { fmtSol, fmtUsd, sym } from "@/lib/format";
  * already landed in the wallet — never a pending balance to claim. That is the
  * whole point of showing it: "where clips pay" only means something if a
  * creator can see what they have actually been paid.
+ *
+ * Two views of the same money, because they answer different questions:
+ *
+ *   Total     — how much, ever.
+ *   Latest    — *who paid me, for what, and when.* An invoice, not a stat. The
+ *               same receipts the notifications inbox and the payout pop carry,
+ *               read from the same Trade rows the total is summed from, so the
+ *               figure and the list can never disagree — and unlike the EARN
+ *               notification rows, this covers payouts from before those
+ *               existed rather than starting empty for a creator already
+ *               earning.
+ *   By clip   — which of my coins actually pays.
+ *
+ * The total is polled, so it flashes when it grows (`useTick`): a payout landing
+ * while this page is open would otherwise move a number nothing draws the eye
+ * to, which is the classic way a live screen reads as dead.
  */
 export function RewardsSection() {
   const { solUsd } = useTrader();
@@ -36,6 +54,8 @@ export function RewardsSection() {
   const sol = data?.rewardsSol ?? 0;
   const has = sol > 0;
   const top = data?.rewards ?? [];
+  const payouts = data?.payouts ?? [];
+  const { dir, nonce } = useTick(sol);
 
   return (
     <>
@@ -46,7 +66,14 @@ export function RewardsSection() {
             Paid to you
           </div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-3xl font-black tabular-nums text-accent">
+            {/* Keyed on the tick nonce so React remounts it and the flash replays
+                exactly once per real change, never on a re-render. */}
+            <span
+              key={nonce}
+              className={`-mx-1.5 rounded px-1.5 text-3xl font-black tabular-nums text-accent ${
+                dir === "up" ? "tick-up" : dir === "down" ? "tick-down" : ""
+              }`}
+            >
               {data == null ? "…" : fmtSol(sol)}
             </span>
             <span className="text-sm font-bold text-muted">SOL</span>
@@ -71,16 +98,51 @@ export function RewardsSection() {
           </p>
         </div>
 
+        {/* ---------- latest, one row per payout ---------- */}
+        {payouts.length > 0 && (
+          <div className="border-t border-line">
+            <div className="px-3 pt-3 text-[10px] font-semibold uppercase tracking-widest text-muted">
+              Latest
+            </div>
+            <ul className="divide-y divide-line">
+              {payouts.slice(0, 5).map((p) => (
+                <li key={p.id}>
+                  <Link
+                    href={`/coin/${encodeURIComponent(p.symbol)}`}
+                    className="press flex items-center gap-3 px-3 py-2.5"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-bold">${sym(p.symbol)}</span>
+                      <span className="block truncate text-[10px] text-muted">
+                        {p.from ? `${p.from} bought` : "a buyer came through"} · {timeAgo(p.at)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs font-bold tabular-nums text-up">
+                      +{fmtSol(p.sol, p.sol < 1 ? 4 : 3)} SOL
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ---------- by clip, rolled up ---------- */}
         {top.length > 0 && (
-          <div className="divide-y divide-line border-t border-line">
-            {top.slice(0, 5).map((r) => (
-              <div key={r.mint} className="flex items-center gap-3 px-3 py-2.5 text-xs">
-                <span className="font-bold">${sym(r.symbol)}</span>
-                <span className="ml-auto font-bold tabular-nums text-accent">
-                  +{fmtSol(r.sol)} SOL
-                </span>
-              </div>
-            ))}
+          <div className="border-t border-line">
+            <div className="px-3 pt-3 text-[10px] font-semibold uppercase tracking-widest text-muted">
+              By clip
+            </div>
+            <div className="divide-y divide-line">
+              {top.slice(0, 5).map((r) => (
+                <div key={r.mint} className="flex items-center gap-3 px-3 py-2.5 text-xs">
+                  <span className="font-bold">${sym(r.symbol)}</span>
+                  <span className="ml-auto font-bold tabular-nums text-accent">
+                    +{fmtSol(r.sol)} SOL
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

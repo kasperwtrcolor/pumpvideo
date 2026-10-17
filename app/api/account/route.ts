@@ -6,7 +6,7 @@ import { withTrader } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { resolveTrader } from "@/lib/session";
 import { requireTrader } from "@/lib/auth";
-import { normalizeUsername, usernameError } from "@/lib/social";
+import { normalizeUsername, publicName, usernameError } from "@/lib/social";
 import { rawTokensToUi } from "@/lib/bonding-curve";
 import { SOLANA_RPC } from "@/lib/pumpfun";
 
@@ -176,6 +176,38 @@ export async function GET() {
 
   const rewardsSol = rewardTotals?._sum.creatorFeeSol ?? 0;
 
+  // ---- the payout ledger --------------------------------------------------
+  // The aggregate above says how much has been paid; this says *by whom, for
+  // what, and when*. Same source the total is summed from — Trade rows whose
+  // creatorWallet is this wallet — so the list and the figure can never disagree,
+  // and it covers payouts from before EARN receipts existed rather than starting
+  // empty for every creator who was already earning.
+  const payoutRows = trader.walletAddress
+    ? await prisma.trade.findMany({
+        where: { creatorWallet: trader.walletAddress, creatorFeeSol: { gt: 0 } },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: {
+          id: true,
+          coinMint: true,
+          symbol: true,
+          creatorFeeSol: true,
+          createdAt: true,
+          traderId: true,
+        },
+      })
+    : [];
+
+  // One lookup for the buyers, rather than one per row.
+  const buyerIds = [...new Set(payoutRows.map((r) => r.traderId))];
+  const buyers = buyerIds.length
+    ? await prisma.trader.findMany({
+        where: { id: { in: buyerIds } },
+        select: { id: true, username: true, displayName: true, walletAddress: true },
+      })
+    : [];
+  const buyerName = new Map(buyers.map((b) => [b.id, publicName(b)]));
+
   return withTrader(
     {
       walletAddress: trader.walletAddress,
@@ -194,6 +226,16 @@ export async function GET() {
         mint: r.coinMint,
         symbol: r.symbol,
         sol: r._sum.creatorFeeSol ?? 0,
+      })),
+      /// The most recent individual payouts, newest first — the receipts behind
+      /// `rewardsSol`. `from` is the buyer, or null once their account is gone.
+      payouts: payoutRows.map((r) => ({
+        id: r.id,
+        mint: r.coinMint,
+        symbol: r.symbol,
+        sol: r.creatorFeeSol,
+        from: buyerName.get(r.traderId) ?? null,
+        at: r.createdAt.toISOString(),
       })),
       // Only what is actually held. A position row outlives the holding on
       // purpose — it is where realized PnL for a closed trade survives — so

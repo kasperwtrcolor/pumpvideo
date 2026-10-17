@@ -278,6 +278,15 @@ export type AccountResponse = {
   rewardsCoins: number;
   /** Per-coin breakdown of rewards earned, largest first. */
   rewards: { mint: string; symbol: string; sol: number }[];
+  /** The most recent individual payouts, newest first. `from` is the buyer. */
+  payouts: {
+    id: string;
+    mint: string;
+    symbol: string;
+    sol: number;
+    from: string | null;
+    at: string;
+  }[];
   positions: PositionDTO[];
   trades: {
     id: string;
