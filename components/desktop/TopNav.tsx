@@ -9,12 +9,11 @@ import { DepositButton } from "../DepositButton";
 import { PersonIcon, SearchIcon } from "../Icons";
 import { LogoLockup } from "../Logo";
 import { fmtUsd } from "@/lib/format";
+import { showGate } from "@/lib/mobile-gate";
 
 /**
- * The desktop top bar: brand and sections on the left, the room's pulse in the
- * middle, and the account corner on the right — the same arrangement as the app
- * header, laid out wide. It replaces the bottom tab bar entirely on desktop,
- * which is why the five phone destinations are all reachable from here.
+ * The desktop top bar: brand and sections on the left, search in the middle,
+ * and the account corner on the right.
  */
 const LINKS = [
   { href: "/", label: "Feed", match: (p: string) => p === "/" },
@@ -50,8 +49,7 @@ export function TopNav() {
         })}
       </nav>
 
-      {/* Search sits dead-centre, the way the wide feed's do — it is the one
-          destination reachable from every state of the page. */}
+      {/* Search sits centre — reachable from every state of the page */}
       <Link
         href="/search"
         className="mx-auto flex h-9 w-full max-w-md items-center gap-2 rounded-full border border-line bg-panel px-3.5 text-[13px] text-muted transition hover:border-muted/50 hover:text-ink"
@@ -73,6 +71,17 @@ export function TopNav() {
           LIVE
         </span>
 
+        {/* Shill mobile app */}
+        <button
+          type="button"
+          onClick={showGate}
+          className="press hidden sm:inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 text-[12px] font-bold text-accent hover:bg-accent/20 transition"
+          title="Scan QR to open Pemp on your phone"
+        >
+          <span>📱</span>
+          <span>Get App</span>
+        </button>
+
         <Link
           href="/upload"
           className="press rounded-full border border-line bg-panel px-3.5 py-2 text-[13px] font-bold text-ink hover:bg-panel2"
@@ -83,11 +92,7 @@ export function TopNav() {
         <DepositButton overlay={false} />
         <NotifyBell overlay={false} />
 
-        {/* Your account. The phone header has had this all along — avatar on the
-            left, tap to manage the wallet — and the wide bar had no way into
-            /account at all, which is why it read as missing. The avatar is the
-            affordance every wallet app uses, so it lives in the same corner
-            here: rightmost, past the money button. */}
+        {/* Your account */}
         <Link
           href="/account"
           aria-label="Your account"

@@ -10,26 +10,11 @@ import { X_HANDLE, X_URL } from "@/lib/social";
 import { hideGate } from "@/lib/mobile-gate";
 
 /**
- * The desktop gate — Pemp is a phone app, and this is what a desktop visitor
- * gets instead of it.
- *
- * Two situations raise this, and the copy has to work for both:
- *
- *   - A direct hit on an app route (`/coins`, `/account`, …). Raised by `Shell`
- *     as the whole viewport, with nothing behind it.
- *   - A CTA on the desktop landing ("Open the app", "Start watching"). Raised as
- *     an overlay over the landing, `dismissible`, so that visitor gets their
- *     marketing page back instead of being stranded.
- *
- * The payload is a QR code. The visitor is already holding the device this app
- * needs — the job is just to move the URL onto it, which a scan does in one
- * motion where "email yourself a link" does in four. The same instructions are
- * printed underneath for anyone who would rather type it, and the Add-to-Home
- * steps are the install pitch, asked for at the moment it actually makes sense.
+ * The desktop mobile promo / gate:
+ * Shows the QR code and Add-to-Home-Screen steps for the best experience on mobile,
+ * while allowing desktop users to continue browsing freely.
  */
-export function DesktopGate({ dismissible = false }: { dismissible?: boolean }) {
-  // Read at runtime rather than baked: the same build serves pemp.fun and the
-  // Vercel preview, and the QR has to point at whichever one the visitor opened.
+export function DesktopGate({ dismissible = true }: { dismissible?: boolean }) {
   const [origin, setOrigin] = useState("https://www.pemp.fun");
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -38,8 +23,6 @@ export function DesktopGate({ dismissible = false }: { dismissible?: boolean }) 
   const shown = origin.replace(/^https?:\/\//, "");
 
   return (
-    // `landing-deck` carries the opaque gradient — without it this screen is a
-    // transparent sheet over the landing it is meant to replace.
     <div className="landing landing-deck fixed inset-0 z-[110] flex flex-col overflow-y-auto text-ink">
       <div className="landing-grid" aria-hidden />
 
@@ -48,7 +31,7 @@ export function DesktopGate({ dismissible = false }: { dismissible?: boolean }) 
         {dismissible ? (
           <button
             onClick={hideGate}
-            aria-label="Back to the landing page"
+            aria-label="Back to desktop app"
             className="press flex h-9 w-9 items-center justify-center rounded-full border border-line bg-panel text-muted hover:text-ink"
           >
             <CloseIcon className="h-4 w-4" />
@@ -70,22 +53,31 @@ export function DesktopGate({ dismissible = false }: { dismissible?: boolean }) 
         <div className="mx-auto grid w-full max-w-[1060px] grid-cols-1 items-center gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-16">
           {/* the ask */}
           <div>
-            <span className="deck-label">Pemp.fun — on your phone</span>
+            <span className="deck-label">Pemp.fun — best on your phone</span>
             <h1 className="mt-5 text-[clamp(32px,4.6vw,60px)] font-black leading-[0.95] tracking-[-0.03em]">
               This one lives in <span className="text-sheen">your pocket</span>.
             </h1>
             <p className="mt-6 max-w-[46ch] text-[16px] leading-relaxed text-muted">
-              Pemp is a vertical feed you drive with your thumb — the swiping, the filming and the
-              buying all happen on a phone. Open it on yours and it works the way it was built.
+              Pemp is built for a vertical feed you drive with your thumb — the fast swiping, filming, and
+              instant 1-tap buys all shine on a phone.
             </p>
 
             <div className="mt-7 flex items-center gap-3 rounded-2xl border border-line bg-panel/60 p-4">
               <MascotStack size={26} />
               <p className="text-[14px] leading-snug text-muted">
-                <span className="font-bold text-ink">Already on this computer?</span> Scan the code,
-                or just open{" "}
-                <span className="font-bold text-ink">pemp.fun</span> on your phone.
+                <span className="font-bold text-ink">Want the mobile experience?</span> Scan the code,
+                or open <span className="font-bold text-ink">pemp.fun</span> on your phone.
               </p>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={hideGate}
+                className="press rounded-2xl burn-gradient px-6 py-3.5 text-[14px] font-black text-black"
+              >
+                Continue on desktop →
+              </button>
             </div>
 
             <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-muted">
@@ -116,7 +108,7 @@ export function DesktopGate({ dismissible = false }: { dismissible?: boolean }) 
                 <div className="min-w-0">
                   <div className="text-[15px] font-black">Scan with your camera</div>
                   <p className="mt-2 text-[13px] leading-relaxed text-muted">
-                    Point your phone at the code — it opens Pemp on the mobile it was made for.
+                    Point your phone at the code — it opens Pemp on mobile.
                   </p>
                   <div className="mt-3 truncate rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[12px] font-bold tabular-nums text-muted">
                     {shown}
@@ -128,11 +120,11 @@ export function DesktopGate({ dismissible = false }: { dismissible?: boolean }) 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Step
                 title="iPhone"
-                lines={["Open pemp.fun in Safari", "Tap the Share button", "Add to Home Screen"]}
+                lines={["Open in Safari", "Tap the Share button", "Add to Home Screen"]}
               />
               <Step
                 title="Android"
-                lines={["Open pemp.fun in Chrome", "Tap the ⋮ menu", "Install app"]}
+                lines={["Open in Chrome", "Tap the ⋮ menu", "Install app"]}
               />
             </div>
 

@@ -62,7 +62,7 @@ function Row({
 }
 
 export function AccountPanel() {
-  const { user, logout, getAccessToken } = usePrivy();
+  const { user, logout, getAccessToken, linkEmail, linkTwitter, linkGoogle } = usePrivy();
   const router = useRouter();
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
@@ -84,8 +84,13 @@ export function AccountPanel() {
   /** Own sign-out confirmation. Privy's own modal is unreliable on small screens. */
   const [confirmLogout, setConfirmLogout] = useState(false);
 
-  const wallet = wallets[0] ?? null;
+  const wallet = wallets.find((w) => w.address === trader?.walletAddress) ?? wallets[0] ?? null;
   const address = wallet?.address ?? trader?.walletAddress ?? null;
+  const linkedWallet = (user?.linkedAccounts ?? []).find(
+    (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet" && a.address === address,
+  );
+  const isEmbedded = linkedWallet?.walletClientType === "privy";
+  const walletName = wallet?.standardWallet?.name ?? (linkedWallet ? linkedWallet.walletClientType : "Solana");
 
   const loadBalance = useCallback(async () => {
     if (!address) return;
@@ -231,7 +236,11 @@ export function AccountPanel() {
       ? "Google"
       : trader?.loginMethod === "TWITTER"
         ? "X (Twitter)"
-        : "Email";
+        : trader?.loginMethod === "WALLET"
+          ? (walletName && walletName !== "privy" ? `${walletName} Wallet` : "Solana Wallet")
+          : trader?.loginMethod === "EMAIL"
+            ? "Email"
+            : (wallet ? "Solana Wallet" : "—");
 
   return (
     <>
@@ -337,17 +346,104 @@ export function AccountPanel() {
             </div>
 
             <div className="mt-3 rounded-xl border border-line bg-panel2 px-3">
-              <Row label="Account" value={trader?.email ?? "anon"} />
+              <Row label="Account" value={trader?.email ?? (user?.email?.address || (address ? shortAddr(address) : "anon"))} />
               <div className="border-t border-line" />
               <Row label="Signed in via" value={loginLabel} />
             </div>
 
-            <button
-              onClick={() => setView("export")}
-              className="mt-3 w-full rounded-xl border border-line py-2 text-[11px] font-semibold text-muted hover:text-ink"
-            >
-              Export private key
-            </button>
+            {/* Linked Accounts */}
+            <div className="mt-3 rounded-xl border border-line bg-panel2 p-3">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                Linked Accounts
+              </div>
+              <div className="space-y-2.5">
+                {/* Email */}
+                <div className="flex items-center justify-between text-[12px]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-muted shrink-0">Email:</span>
+                    <span className="font-mono text-[11px] truncate text-ink">
+                      {user?.email?.address ?? "None"}
+                    </span>
+                  </div>
+                  {user?.email?.address ? (
+                    <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent">
+                      Linked
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => linkEmail()}
+                      className="press shrink-0 rounded-full border border-line px-2.5 py-0.5 text-[11px] font-bold text-ink hover:border-accent hover:text-accent"
+                    >
+                      + Link Email
+                    </button>
+                  )}
+                </div>
+
+                <div className="border-t border-line/40" />
+
+                {/* X (Twitter) */}
+                <div className="flex items-center justify-between text-[12px]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-muted shrink-0">X (Twitter):</span>
+                    <span className="truncate text-ink font-semibold">
+                      {user?.twitter?.username ? `@${user.twitter.username}` : "None"}
+                    </span>
+                  </div>
+                  {user?.twitter?.username ? (
+                    <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent">
+                      Linked
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => linkTwitter()}
+                      className="press shrink-0 rounded-full border border-line px-2.5 py-0.5 text-[11px] font-bold text-ink hover:border-accent hover:text-accent"
+                    >
+                      + Link X
+                    </button>
+                  )}
+                </div>
+
+                <div className="border-t border-line/40" />
+
+                {/* Google */}
+                <div className="flex items-center justify-between text-[12px]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-muted shrink-0">Google:</span>
+                    <span className="font-mono text-[11px] truncate text-ink">
+                      {user?.google?.email ?? "None"}
+                    </span>
+                  </div>
+                  {user?.google?.email ? (
+                    <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent">
+                      Linked
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => linkGoogle()}
+                      className="press shrink-0 rounded-full border border-line px-2.5 py-0.5 text-[11px] font-bold text-ink hover:border-accent hover:text-accent"
+                    >
+                      + Link Google
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {isEmbedded ? (
+              <button
+                onClick={() => setView("export")}
+                className="mt-3 w-full rounded-xl border border-line py-2 text-[11px] font-semibold text-muted hover:text-ink"
+              >
+                Export private key
+              </button>
+            ) : wallet ? (
+              <div className="mt-3 rounded-xl border border-line/60 bg-panel px-3 py-2 text-center text-[11px] text-muted">
+                External wallet ({walletName || "extension"}) · keys managed in your wallet app
+              </div>
+            ) : null}
 
             <p className="mt-3 text-[10px] leading-relaxed text-muted">
               Funds in this wallet are yours — Pemp never holds your keys and cannot

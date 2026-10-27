@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import type { LandingTile, LaunchTile } from "@/lib/landing";
-import { getWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
+import { getWelcomeOpen, setWelcomeOpen, subscribeWelcome } from "@/lib/welcome";
 import { showGate } from "@/lib/mobile-gate";
 import { LogoLockup } from "../Logo";
 import { MascotStack } from "../Mascots";
@@ -39,7 +39,7 @@ export function DesktopLanding({ tiles, launches }: { tiles: LandingTile[]; laun
   // Every "open the app" affordance on this page lands on the same place: the
   // mobile gate. There is no desktop app to open, and fading the deck away to
   // nothing would just look broken.
-  const enter = useCallback(() => showGate(), []);
+  const enter = useCallback(() => setWelcomeOpen(false), []);
   const { reels, slides, stats } = useLandingData(tiles);
   const [reelIdx, setReelIdx] = useState(0);
 
@@ -191,6 +191,14 @@ export function DesktopLanding({ tiles, launches }: { tiles: LandingTile[]; laun
             <XIcon className="h-4 w-4" />
           </a>
           <button
+            type="button"
+            onClick={showGate}
+            className="press hidden sm:inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3.5 py-1.5 text-[12px] font-bold text-accent hover:bg-accent/20 transition"
+          >
+            <span>📱</span>
+            <span>Get mobile app</span>
+          </button>
+          <button
             onClick={enter}
             className="press rounded-full burn-gradient px-4 py-2 text-[13px] font-black text-black"
           >
@@ -231,6 +239,14 @@ export function DesktopLanding({ tiles, launches }: { tiles: LandingTile[]; laun
                 className="press rounded-2xl burn-gradient px-6 py-3.5 text-[15px] font-black tracking-wide text-black"
               >
                 Open the feed
+              </button>
+              <button
+                type="button"
+                onClick={showGate}
+                className="press inline-flex items-center gap-2 rounded-2xl border border-accent/40 bg-accent/10 px-5 py-3.5 text-[14px] font-black text-accent hover:bg-accent/20 transition"
+              >
+                <span>📱</span>
+                <span>Get mobile app</span>
               </button>
               <button
                 onClick={() => go(1)}
@@ -355,6 +371,14 @@ export function DesktopLanding({ tiles, launches }: { tiles: LandingTile[]; laun
                 className="press rounded-2xl burn-gradient px-7 py-3.5 text-[15px] font-black tracking-wide text-black"
               >
                 Start watching
+              </button>
+              <button
+                type="button"
+                onClick={showGate}
+                className="press inline-flex items-center gap-2 rounded-2xl border border-accent/40 bg-accent/10 px-5 py-3.5 text-[14px] font-black text-accent hover:bg-accent/20 transition"
+              >
+                <span>📱</span>
+                <span>Get mobile app</span>
               </button>
               <a
                 href={X_URL}

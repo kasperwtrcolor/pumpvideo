@@ -51,19 +51,20 @@ export function PrivyRoot({ children }: { children: React.ReactNode }) {
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        loginMethods: ["email", "google", "twitter"],
+        loginMethods: ["wallet", "email", "google", "twitter"],
         appearance: {
           theme: "#08080A",
           accentColor: ACCENT,
           landingHeader: "Log in to Pemp",
           loginMessage:
-            "A Solana wallet is created for you automatically — no extension, no seed phrase.",
+            "Log in with a Solana wallet, or an embedded wallet will be created for you automatically.",
           showWalletLoginFirst: false,
+          walletChainType: "solana-only",
         },
         embeddedWallets: {
-          // Every login gets a Solana wallet — this is the account's trading
-          // wallet, and the one top-up / withdraw / export all operate on.
-          solana: { createOnLogin: "all-users" },
+          // Users who sign in with an external Solana wallet use it directly;
+          // users signing in with email or socials get an embedded Solana wallet.
+          solana: { createOnLogin: "users-without-wallets" },
         },
         solana: SOLANA_CONFIG,
       }}

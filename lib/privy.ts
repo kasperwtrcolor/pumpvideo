@@ -16,6 +16,7 @@ import { PrivyClient } from "@privy-io/server-auth";
 import type { AuthTokenClaims, User } from "@privy-io/server-auth";
 import { prisma } from "./db";
 import type { TraderRecord } from "./session";
+import { shortAddr } from "./format";
 
 let cached: PrivyClient | null = null;
 
@@ -40,10 +41,10 @@ function client(): PrivyClient {
 export type PrivyProfile = {
   privyDid: string;
   email: string | null;
-  loginMethod: "EMAIL" | "GOOGLE" | "TWITTER" | null;
+  loginMethod: "EMAIL" | "GOOGLE" | "TWITTER" | "WALLET" | null;
   displayName: string | null;
   avatarUrl: string | null;
-  /** The user's Solana embedded wallet, if one has been created yet. */
+  /** The user's Solana embedded or external wallet. */
   walletAddress: string | null;
   walletId: string | null;
 };
@@ -59,7 +60,14 @@ function pickSolanaWallet(user: User): { address: string; id: string | null } | 
       a.type === "wallet" && (a as { chainType?: string }).chainType === "solana",
   );
   if (wallets.length === 0) return null;
-  // Prefer the embedded (Privy-managed) wallet over any imported/external one.
+
+  // If user.wallet is on Solana, prefer the primary wallet they authenticated with:
+  if (user.wallet && (user.wallet as { chainType?: string }).chainType === "solana") {
+    const primary = wallets.find((w) => w.address === user.wallet?.address);
+    if (primary) return { address: primary.address, id: primary.id ?? null };
+  }
+
+  // Otherwise prefer an embedded wallet if one exists, or default to the first wallet
   const embedded = wallets.find((w) => (w as { walletClientType?: string }).walletClientType === "privy");
   const chosen = embedded ?? wallets[0];
   return { address: chosen.address, id: chosen.id ?? null };
@@ -87,6 +95,7 @@ function profileFromUser(user: User): PrivyProfile {
   const google = user.google;
   const twitter = user.twitter;
   const email = user.email?.address ?? google?.email ?? null;
+  const solana = pickSolanaWallet(user);
 
   const loginMethod: PrivyProfile["loginMethod"] = google
     ? "GOOGLE"
@@ -94,20 +103,22 @@ function profileFromUser(user: User): PrivyProfile {
       ? "TWITTER"
       : email
         ? "EMAIL"
-        : null;
-
-  const solana = pickSolanaWallet(user);
+        : solana
+          ? "WALLET"
+          : null;
 
   const first = google?.name?.split(" ")[0] ?? twitter?.name ?? twitter?.username ?? null;
-  const displayName = first ?? (email ? email.split("@")[0] : null) ?? null;
+  const displayName =
+    first ??
+    (email ? email.split("@")[0] : null) ??
+    (solana ? shortAddr(solana.address, 4) : null);
 
   return {
     privyDid: user.id,
     email,
     loginMethod,
     displayName,
-    // Only Twitter exposes an avatar server-side; `Google` carries just
-    // subject/email/name, so Google users fall back to the initials dot.
+    // Twitter exposes an avatar server-side
     avatarUrl: twitter?.profilePictureUrl ?? null,
     walletAddress: solana?.address ?? null,
     walletId: solana?.id ?? null,
@@ -139,7 +150,18 @@ export async function bindPrivyTrader(
 
   const existing = await prisma.trader.findUnique({ where: { privyDid: profile.privyDid } });
   if (existing) {
-    return prisma.trader.update({ where: { id: existing.id }, data });
+    return prisma.trader.update({
+      where: { id: existing.id },
+      data: {
+        ...data,
+        email: data.email ?? existing.email,
+        loginMethod: data.loginMethod ?? existing.loginMethod,
+        displayName: existing.displayName ?? data.displayName,
+        avatarUrl: data.avatarUrl ?? existing.avatarUrl,
+        walletAddress: data.walletAddress ?? existing.walletAddress,
+        walletId: data.walletId ?? existing.walletId,
+      },
+    });
   }
 
   // Adopt the anonymous row this browser has been using, if it isn't already
@@ -151,7 +173,12 @@ export async function bindPrivyTrader(
     }
   }
 
-  return prisma.trader.create({ data: { handle: `user-${profile.privyDid.replace(/[^a-zA-Z0-9]/g, "").slice(-24)}`, ...data } });
+  return prisma.trader.create({
+    data: {
+      handle: `user-${profile.privyDid.replace(/[^a-zA-Z0-9]/g, "").slice(-24)}`,
+      ...data,
+    },
+  });
 }
 
 /**

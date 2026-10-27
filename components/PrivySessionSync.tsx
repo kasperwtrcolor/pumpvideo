@@ -13,8 +13,8 @@ import { useTrader } from "./TraderProvider";
  * trader that the rest of the app already knows how to talk to.
  *
  * The ref guard keeps this to at most one call per Privy user per mount (plus a
- * single repeat if the identity token arrives after the access token), so
- * routine re-renders don't spam the endpoint.
+ * single repeat if the identity token or linked accounts change), so routine
+ * re-renders don't spam the endpoint.
  */
 export function PrivySessionSync() {
   const { ready, authenticated, user, getAccessToken } = usePrivy();
@@ -31,7 +31,19 @@ export function PrivySessionSync() {
       return;
     }
 
-    const key = `${user.id}:${identityToken ? "id" : "noid"}`;
+    // Include linked accounts in the signature so that linking/unlinking
+    // socials or wallets triggers a re-sync to the backend session.
+    const accountsSignature = (user.linkedAccounts ?? [])
+      .map((a) => {
+        if (a.type === "wallet") return `wallet:${a.address}`;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyA = a as any;
+        return `${a.type}:${anyA.address ?? anyA.username ?? anyA.email ?? anyA.subject ?? ""}`;
+      })
+      .sort()
+      .join("|");
+
+    const key = `${user.id}:${identityToken ? "id" : "noid"}:${accountsSignature}`;
     if (synced.current === key) return;
     synced.current = key;
 
